@@ -65,6 +65,8 @@ const DocumentUpload: React.FC = () => {
   const [wsConnected, setWsConnected] = useState(false);
   const { token, user } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
+  const filesToUpload = useRef<File[]>([]);
+  const pollingRef = useRef<number | null>(null);
 
   // 获取上传配置
   useEffect(() => {
@@ -72,6 +74,17 @@ const DocumentUpload: React.FC = () => {
       .then(res => res.json())
       .then(data => setUploadConfig(data))
       .catch(err => console.error('获取配置失败:', err));
+  }, []);
+
+  // 轮询任务状态
+  const pollTasks = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:8001/api/documents/tasks');
+      const data = await response.json();
+      setTasks(data.tasks || []);
+    } catch (error) {
+      console.error('获取任务列表失败:', error);
+    }
   }, []);
 
   // WebSocket连接
@@ -90,7 +103,6 @@ const DocumentUpload: React.FC = () => {
         const data = JSON.parse(event.data);
         
         if (data.type === 'task_progress') {
-          // 更新任务进度
           setTasks(prev => {
             const taskIndex = prev.findIndex(t => t.task_id === data.data.task_id);
             if (taskIndex >= 0) {
@@ -101,7 +113,6 @@ const DocumentUpload: React.FC = () => {
             return [data.data, ...prev];
           });
         } else if (data.type === 'status') {
-          // 全量状态更新
           setTasks(data.tasks || []);
         } else if (data.type === 'ping') {
           ws.send('pong');
@@ -127,10 +138,18 @@ const DocumentUpload: React.FC = () => {
 
   useEffect(() => {
     connectWebSocket();
+    pollTasks(); // 初始加载任务列表
+    
+    // 同时启用轮询作为备份
+    pollingRef.current = window.setInterval(pollTasks, 3000);
+    
     return () => {
       wsRef.current?.close();
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
     };
-  }, [connectWebSocket]);
+  }, [connectWebSocket, pollTasks]);
 
   // 批量上传
   const handleBatchUpload = async (files: File[]) => {
@@ -158,9 +177,12 @@ const DocumentUpload: React.FC = () => {
       });
       
       const result = await response.json();
+      console.log('批量上传结果:', result);
       
       if (result.submitted > 0) {
         message.success(`成功提交${result.submitted}个文档处理任务`);
+        // 立即刷新任务列表
+        pollTasks();
       }
       
       if (result.duplicates > 0) {
@@ -169,13 +191,13 @@ const DocumentUpload: React.FC = () => {
       
       // 显示失败的任务
       result.tasks.forEach((t: any) => {
-        if (!t.success) {
+        if (!t.success && !t.duplicate) {
           message.error(`${t.filename}: ${t.error}`);
         }
       });
       
-    } catch (error) {
-      message.error('上传失败');
+    } catch (error: any) {
+      message.error(`上传失败: ${error.message}`);
     } finally {
       setUploading(false);
     }
@@ -196,26 +218,26 @@ const DocumentUpload: React.FC = () => {
     return <Tag color={color} icon={icon}>{text}</Tag>;
   };
 
-  const props = {
-    name: 'file',
+  const uploadProps = {
+    name: 'files',
     multiple: true,
     showUploadList: false,
-    beforeUpload: (file: File, fileList: File[]) => {
-      // 检查文件大小
-      if (uploadConfig && file.size > uploadConfig.max_file_size_mb * 1024 * 1024) {
-        message.error(`文件 ${file.name} 超过大小限制(${uploadConfig.max_file_size_mb}MB)`);
-        return false;
-      }
-      return true;
-    },
-    customRequest: async (options: any) => {
-      // 不使用默认上传，而是收集所有文件后批量上传
-    },
+    beforeUpload: () => false, // 阻止自动上传
     onChange: (info: any) => {
-      // 收集所有文件，当用户选择完成后上传
+      // 当文件选择完成时
       if (info.fileList.length > 0) {
         const files = info.fileList.map((f: any) => f.originFileObj).filter(Boolean);
         if (files.length > 0) {
+          // 检查文件大小
+          const oversizedFiles = files.filter((f: File) => 
+            uploadConfig && f.size > uploadConfig.max_file_size_mb * 1024 * 1024
+          );
+          
+          if (oversizedFiles.length > 0) {
+            message.error(`以下文件超过大小限制(${uploadConfig?.max_file_size_mb}MB): ${oversizedFiles.map((f: File) => f.name).join(', ')}`);
+            return;
+          }
+          
           handleBatchUpload(files);
         }
       }
@@ -249,7 +271,7 @@ const DocumentUpload: React.FC = () => {
           </div>
         )}
         
-        <Upload.Dragger {...props} style={{ marginBottom: 16 }}>
+        <Upload.Dragger {...uploadProps} style={{ marginBottom: 16 }}>
           <p className="ant-upload-drag-icon">
             <UploadOutlined />
           </p>
@@ -273,7 +295,7 @@ const DocumentUpload: React.FC = () => {
                   key={task.task_id}
                   actions={[
                     task.status === 'completed' && task.result && (
-                      <Tooltip title="查看详情">
+                      <Tooltip title="查看详情" key="view">
                         <Button 
                           type="link" 
                           size="small"
