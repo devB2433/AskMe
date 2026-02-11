@@ -1,11 +1,14 @@
-"""用户服务模块"""
+"""用户服务模块 - SQLite版本"""
 import json
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 import hashlib
 import secrets
-from pathlib import Path
+import logging
+
+from services.database import db
+
+logger = logging.getLogger(__name__)
 
 # 预定义部门列表
 DEFAULT_DEPARTMENTS = [
@@ -19,30 +22,9 @@ DEFAULT_DEPARTMENTS = [
     {"id": "legal", "name": "法务部", "description": "法务团队"},
 ]
 
-@dataclass
-class User:
-    """用户数据模型"""
-    user_id: str
-    username: str
-    password_hash: str
-    name: str
-    department: str  # 用户所属部门
-    email: Optional[str] = None
-    created_at: datetime = None
-    last_login: datetime = None
-    is_active: bool = True
-    tokens: List[str] = None  # 登录token列表
-    
-    def __post_init__(self):
-        if self.created_at is None:
-            self.created_at = datetime.now()
-        if self.tokens is None:
-            self.tokens = []
 
 class UserService:
-    """用户服务"""
-    
-    USER_FILE = Path("data/users.json")
+    """用户服务 - SQLite版本"""
     
     _instance = None
     
@@ -56,66 +38,8 @@ class UserService:
         if self._initialized:
             return
         self._initialized = True
-        self.users: Dict[str, User] = {}
-        self.token_to_user: Dict[str, str] = {}  # token -> user_id
-        self._load_users()
-    
-    def _load_users(self):
-        """从文件加载用户"""
-        try:
-            if self.USER_FILE.exists():
-                with open(self.USER_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                for user_data in data.get('users', []):
-                    user = User(
-                        user_id=user_data['user_id'],
-                        username=user_data['username'],
-                        password_hash=user_data['password_hash'],
-                        name=user_data['name'],
-                        department=user_data['department'],
-                        email=user_data.get('email'),
-                        created_at=datetime.fromisoformat(user_data['created_at']) if user_data.get('created_at') else None,
-                        last_login=datetime.fromisoformat(user_data['last_login']) if user_data.get('last_login') else None,
-                        is_active=user_data.get('is_active', True),
-                        tokens=user_data.get('tokens', [])
-                    )
-                    self.users[user.user_id] = user
-                    self.users[user.username] = user  # 同时用username做索引
-                    # 重建token索引
-                    for token in user.tokens:
-                        self.token_to_user[token] = user.user_id
-                print(f"加载了 {len(self.users) // 2} 个用户")
-        except Exception as e:
-            print(f"加载用户失败: {e}")
-    
-    def _save_users(self):
-        """保存用户到文件"""
-        try:
-            self.USER_FILE.parent.mkdir(parents=True, exist_ok=True)
-            # 只保存user_id索引的数据
-            unique_users = {}
-            for key, user in self.users.items():
-                if user.user_id not in unique_users:
-                    unique_users[user.user_id] = user
-            
-            data = {
-                'users': [{
-                    'user_id': user.user_id,
-                    'username': user.username,
-                    'password_hash': user.password_hash,
-                    'name': user.name,
-                    'department': user.department,
-                    'email': user.email,
-                    'created_at': user.created_at.isoformat() if user.created_at else None,
-                    'last_login': user.last_login.isoformat() if user.last_login else None,
-                    'is_active': user.is_active,
-                    'tokens': user.tokens
-                } for user in unique_users.values()]
-            }
-            with open(self.USER_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"保存用户失败: {e}")
+        # 数据库在导入时已初始化
+        logger.info("UserService初始化完成（SQLite模式）")
     
     def _hash_password(self, password: str) -> str:
         """密码哈希"""
@@ -136,7 +60,8 @@ class UserService:
             注册结果
         """
         # 检查用户名是否已存在
-        if username in self.users:
+        existing = db.fetchone("SELECT id FROM users WHERE username = ?", (username,))
+        if existing:
             return {"success": False, "error": "用户名已存在"}
         
         # 验证部门是否有效
@@ -146,29 +71,29 @@ class UserService:
         
         # 创建用户
         user_id = f"user_{secrets.token_hex(8)}"
-        user = User(
-            user_id=user_id,
-            username=username,
-            password_hash=self._hash_password(password),
-            name=name,
-            department=department,
-            email=email
-        )
         
-        self.users[user_id] = user
-        self.users[username] = user
-        
-        self._save_users()
-        
-        return {
-            "success": True,
-            "user": {
-                "user_id": user_id,
-                "username": username,
-                "name": name,
-                "department": department
+        try:
+            db.execute(
+                """INSERT INTO users (id, username, password_hash, name, department, email, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, username, self._hash_password(password), name, department, email, datetime.now())
+            )
+            db.conn.commit()
+            
+            logger.info(f"用户注册成功: {username}")
+            
+            return {
+                "success": True,
+                "user": {
+                    "user_id": user_id,
+                    "username": username,
+                    "name": name,
+                    "department": department
+                }
             }
-        }
+        except Exception as e:
+            logger.error(f"用户注册失败: {e}")
+            return {"success": False, "error": str(e)}
     
     def login(self, username: str, password: str) -> Dict[str, Any]:
         """
@@ -181,59 +106,93 @@ class UserService:
         Returns:
             登录结果，包含token
         """
-        user = self.users.get(username)
+        user = db.fetchone(
+            "SELECT * FROM users WHERE username = ?",
+            (username,)
+        )
+        
         if not user:
             return {"success": False, "error": "用户名或密码错误"}
         
-        if not user.is_active:
+        if not user['is_active']:
             return {"success": False, "error": "账户已被禁用"}
         
-        if user.password_hash != self._hash_password(password):
+        if user['password_hash'] != self._hash_password(password):
             return {"success": False, "error": "用户名或密码错误"}
         
         # 生成token
         token = secrets.token_urlsafe(32)
-        user.tokens.append(token)
-        self.token_to_user[token] = user.user_id
-        user.last_login = datetime.now()
         
-        self._save_users()
-        
-        return {
-            "success": True,
-            "token": token,
-            "user": {
-                "user_id": user.user_id,
-                "username": user.username,
-                "name": user.name,
-                "department": user.department
+        try:
+            # 保存token
+            db.execute(
+                "INSERT INTO user_tokens (user_id, token, created_at) VALUES (?, ?, ?)",
+                (user['id'], token, datetime.now())
+            )
+            # 更新最后登录时间
+            db.execute(
+                "UPDATE users SET last_login = ? WHERE id = ?",
+                (datetime.now(), user['id'])
+            )
+            db.conn.commit()
+            
+            logger.info(f"用户登录成功: {username}")
+            
+            return {
+                "success": True,
+                "token": token,
+                "user": {
+                    "user_id": user['id'],
+                    "username": user['username'],
+                    "name": user['name'],
+                    "department": user['department']
+                }
             }
-        }
+        except Exception as e:
+            logger.error(f"登录失败: {e}")
+            return {"success": False, "error": "登录失败"}
     
     def logout(self, token: str) -> bool:
         """用户登出"""
-        user_id = self.token_to_user.get(token)
-        if not user_id:
+        try:
+            db.execute("DELETE FROM user_tokens WHERE token = ?", (token,))
+            db.conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"登出失败: {e}")
             return False
-        
-        user = self.users.get(user_id)
-        if user and token in user.tokens:
-            user.tokens.remove(token)
-            del self.token_to_user[token]
-            self._save_users()
-        
-        return True
     
-    def get_user_by_token(self, token: str) -> Optional[User]:
+    def get_user_by_token(self, token: str) -> Optional[Dict]:
         """通过token获取用户"""
-        user_id = self.token_to_user.get(token)
-        if user_id:
-            return self.users.get(user_id)
+        result = db.fetchone(
+            """SELECT u.* FROM users u 
+               JOIN user_tokens t ON u.id = t.user_id 
+               WHERE t.token = ?""",
+            (token,)
+        )
+        if result:
+            return {
+                'user_id': result['id'],
+                'username': result['username'],
+                'name': result['name'],
+                'department': result['department'],
+                'email': result['email'],
+                'is_active': result['is_active']
+            }
         return None
     
-    def get_user_by_id(self, user_id: str) -> Optional[User]:
+    def get_user_by_id(self, user_id: str) -> Optional[Dict]:
         """通过ID获取用户"""
-        return self.users.get(user_id)
+        result = db.fetchone("SELECT * FROM users WHERE id = ?", (user_id,))
+        if result:
+            return {
+                'user_id': result['id'],
+                'username': result['username'],
+                'name': result['name'],
+                'department': result['department'],
+                'email': result['email']
+            }
+        return None
     
     def get_departments(self) -> List[Dict[str, str]]:
         """获取所有部门列表"""

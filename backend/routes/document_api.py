@@ -6,12 +6,14 @@ from datetime import datetime
 import uuid
 import os
 from pathlib import Path
+import hashlib
 
 # 导入服务层
 from services.document_processor import DocumentProcessor, ProcessingConfig
 from services.milvus_integration import MilvusClient
 from services.embedding_encoder import EmbeddingEncoder
 from services.state_manager import StateManager, StateType, StateStatus
+from services.database import db
 
 logger = logging.getLogger(__name__)
 
@@ -82,28 +84,58 @@ async def upload_document(
                 actual_team_id = user.department
                 uploaded_by = user.username
         
-        # 检查是否存在同名文件，存在则先删除旧的
-        existing_docs = state_mgr.query_states(state_type=StateType.DOCUMENT)
-        for doc in existing_docs:
-            if doc.data.get("filename") == file.filename:
-                old_doc_id = doc.entity_id
-                logger.info(f"检测到重复文件，删除旧文档: {file.filename} (ID: {old_doc_id})")
-                
-                # 删除状态记录
-                state_mgr.delete_state(doc.state_id)
-                
-                # 删除向量数据
-                try:
-                    milvus.delete_vectors_by_document_id("askme_documents", old_doc_id)
-                except Exception as e:
-                    logger.warning(f"删除旧向量数据失败: {e}")
-                
-                # 删除文件
-                upload_dir = Path("uploads")
-                for old_file in upload_dir.glob(f"{old_doc_id}_*"):
-                    old_file.unlink()
-                    logger.info(f"删除旧文件: {old_file}")
-                break
+        # 读取文件内容并计算哈希
+        content = await file.read()
+        file_hash = hashlib.md5(content).hexdigest()
+        file_size = len(content)
+        
+        # 重置文件指针
+        await file.seek(0)
+        
+        # 检查文件哈希是否已存在（去重）
+        existing_doc = db.fetchone(
+            "SELECT id, filename FROM documents WHERE file_hash = ?",
+            (file_hash,)
+        )
+        
+        if existing_doc:
+            logger.info(f"检测到重复文件（哈希相同）: {file.filename} -> 已存在 {existing_doc['filename']}")
+            return {
+                "success": False,
+                "error": f"文件已存在: {existing_doc['filename']}",
+                "duplicate": True,
+                "existing_id": existing_doc['id']
+            }
+        
+        # 检查是否存在同名文件（不同内容），存在则先删除旧的
+        existing_same_name = db.fetchone(
+            "SELECT id FROM documents WHERE filename = ?",
+            (file.filename,)
+        )
+        
+        if existing_same_name:
+            old_doc_id = existing_same_name['id']
+            logger.info(f"检测到同名文件，删除旧文档: {file.filename} (ID: {old_doc_id})")
+            
+            # 删除数据库记录
+            db.execute("DELETE FROM documents WHERE id = ?", (old_doc_id,))
+            
+            # 删除状态记录
+            state_mgr.delete_state(f"document_{old_doc_id}")
+            
+            # 删除向量数据
+            try:
+                milvus.delete_vectors_by_document_id("askme_documents", old_doc_id)
+            except Exception as e:
+                logger.warning(f"删除旧向量数据失败: {e}")
+            
+            # 删除文件
+            upload_dir = Path("uploads")
+            for old_file in upload_dir.glob(f"{old_doc_id}_*"):
+                old_file.unlink()
+                logger.info(f"删除旧文件: {old_file}")
+            
+            db.conn.commit()
         
         # 生成文档ID
         document_id = f"doc_{uuid.uuid4().hex[:12]}"
@@ -185,7 +217,7 @@ async def upload_document(
             logger.warning(f"向量存储失败（降级为纯文本搜索）: {e}")
             vector_stored = False
         
-        # 更新最终状态
+        # 更新状态记录
         state_mgr.update_state(
             state_id,
             new_status=StateStatus.COMPLETED,
@@ -198,6 +230,16 @@ async def upload_document(
             }
         )
         
+        # 插入文档记录到数据库
+        db.execute(
+            """INSERT INTO documents 
+               (id, filename, content_type, team_id, uploaded_by, status, chunks_count, vector_stored, file_size, file_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (document_id, file.filename, file.content_type, actual_team_id, uploaded_by, 
+             'completed', len(chunks), 1 if vector_stored else 0, file_size, file_hash)
+        )
+        db.conn.commit()
+        
         logger.info(f"文档上传处理完成: {file.filename}")
         
         return {
@@ -208,6 +250,7 @@ async def upload_document(
             "processing_time": 0,
             "status": "completed",
             "vector_stored": vector_stored,
+            "team_id": actual_team_id,
             "message": "文档已成功上传、处理和向量化存储" if vector_stored else "文档已处理，向量存储失败（可使用文本搜索）"
         }
         
