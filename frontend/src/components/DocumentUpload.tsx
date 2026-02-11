@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Button, message, Card, Progress, List, Tag, Space, Modal, Badge, Tooltip } from 'antd';
+import { Upload, Button, message, Card, Progress, List, Tag, Space, Modal, Badge, Tooltip, Row, Col, Spin } from 'antd';
 import { 
   UploadOutlined, 
   CheckCircleOutlined, 
@@ -8,7 +8,8 @@ import {
   LoadingOutlined,
   FileTextOutlined,
   DeleteOutlined,
-  EyeOutlined
+  EyeOutlined,
+  SyncOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -58,6 +59,19 @@ const stageColors: Record<string, string> = {
   completed: '#52c41a'
 };
 
+// 判断阶段属于上传还是向量化
+const getPhaseInfo = (stage: string) => {
+  const uploadStages = ['uploading', 'parsing', 'chunking'];
+  const vectorStages = ['embedding', 'storing'];
+  
+  if (uploadStages.includes(stage)) {
+    return { phase: 'upload', label: '文档处理' };
+  } else if (vectorStages.includes(stage)) {
+    return { phase: 'vector', label: '向量化' };
+  }
+  return { phase: 'complete', label: '完成' };
+};
+
 const DocumentUpload: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -65,7 +79,6 @@ const DocumentUpload: React.FC = () => {
   const [wsConnected, setWsConnected] = useState(false);
   const { token, user } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
-  const filesToUpload = useRef<File[]>([]);
   const pollingRef = useRef<number | null>(null);
 
   // 获取上传配置
@@ -125,7 +138,6 @@ const DocumentUpload: React.FC = () => {
     ws.onclose = () => {
       console.log('WebSocket已断开');
       setWsConnected(false);
-      // 5秒后重连
       setTimeout(connectWebSocket, 5000);
     };
     
@@ -138,9 +150,7 @@ const DocumentUpload: React.FC = () => {
 
   useEffect(() => {
     connectWebSocket();
-    pollTasks(); // 初始加载任务列表
-    
-    // 同时启用轮询作为备份
+    pollTasks();
     pollingRef.current = window.setInterval(pollTasks, 3000);
     
     return () => {
@@ -181,7 +191,6 @@ const DocumentUpload: React.FC = () => {
       
       if (result.submitted > 0) {
         message.success(`成功提交${result.submitted}个文档处理任务`);
-        // 立即刷新任务列表
         pollTasks();
       }
       
@@ -189,7 +198,6 @@ const DocumentUpload: React.FC = () => {
         message.warning(`${result.duplicates}个文件已存在，已跳过`);
       }
       
-      // 显示失败的任务
       result.tasks.forEach((t: any) => {
         if (!t.success && !t.duplicate) {
           message.error(`${t.filename}: ${t.error}`);
@@ -208,7 +216,7 @@ const DocumentUpload: React.FC = () => {
     const config: Record<string, { color: string; icon: React.ReactNode; text: string }> = {
       pending: { color: 'default', icon: <ClockCircleOutlined />, text: '等待中' },
       queued: { color: 'blue', icon: <ClockCircleOutlined />, text: '队列中' },
-      processing: { color: 'processing', icon: <LoadingOutlined />, text: '处理中' },
+      processing: { color: 'processing', icon: <SyncOutlined spin />, text: '处理中' },
       completed: { color: 'success', icon: <CheckCircleOutlined />, text: '已完成' },
       failed: { color: 'error', icon: <CloseCircleOutlined />, text: '失败' },
       cancelled: { color: 'warning', icon: <CloseCircleOutlined />, text: '已取消' }
@@ -218,17 +226,101 @@ const DocumentUpload: React.FC = () => {
     return <Tag color={color} icon={icon}>{text}</Tag>;
   };
 
+  // 渲染进度条
+  const renderProgress = (task: Task) => {
+    if (task.status === 'completed') {
+      return (
+        <Row gutter={16}>
+          <Col span={12}>
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: '#666' }}>文档处理</span>
+            </div>
+            <Progress percent={100} size="small" status="success" />
+          </Col>
+          <Col span={12}>
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: '#666' }}>向量化</span>
+            </div>
+            <Progress percent={100} size="small" status="success" />
+          </Col>
+        </Row>
+      );
+    }
+    
+    if (task.status === 'failed') {
+      return <span style={{ color: '#ff4d4f' }}>{task.error}</span>;
+    }
+    
+    if (task.status === 'processing') {
+      const stage = task.progress.stage;
+      const phaseInfo = getPhaseInfo(stage);
+      const percentage = task.progress.percentage;
+      
+      return (
+        <Row gutter={16}>
+          <Col span={12}>
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: '#666' }}>
+                文档处理
+                {phaseInfo.phase === 'upload' && (
+                  <SyncOutlined spin style={{ marginLeft: 8, color: '#1890ff' }} />
+                )}
+              </span>
+            </div>
+            <Progress 
+              percent={phaseInfo.phase === 'upload' ? percentage : 100} 
+              size="small"
+              status={phaseInfo.phase === 'upload' ? 'active' : 'success'}
+            />
+          </Col>
+          <Col span={12}>
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: '#666' }}>
+                向量化
+                {phaseInfo.phase === 'vector' && (
+                  <SyncOutlined spin style={{ marginLeft: 8, color: '#fa8c16' }} />
+                )}
+              </span>
+            </div>
+            <Progress 
+              percent={phaseInfo.phase === 'vector' ? percentage : (phaseInfo.phase === 'complete' ? 100 : 0)} 
+              size="small"
+              status={phaseInfo.phase === 'vector' ? 'active' : (phaseInfo.phase === 'complete' ? 'success' : 'normal')}
+              strokeColor={phaseInfo.phase === 'vector' ? '#fa8c16' : undefined}
+            />
+          </Col>
+        </Row>
+      );
+    }
+    
+    // pending/queued 状态
+    return (
+      <Row gutter={16}>
+        <Col span={12}>
+          <div style={{ marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: '#666' }}>文档处理</span>
+          </div>
+          <Progress percent={0} size="small" />
+        </Col>
+        <Col span={12}>
+          <div style={{ marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: '#666' }}>向量化</span>
+          </div>
+          <Progress percent={0} size="small" />
+        </Col>
+      </Row>
+    );
+  };
+
   const uploadProps = {
     name: 'files',
     multiple: true,
     showUploadList: false,
-    beforeUpload: () => false, // 阻止自动上传
+    beforeUpload: () => false,
     onChange: (info: any) => {
-      // 当文件选择完成时
       if (info.fileList.length > 0) {
         const files = info.fileList.map((f: any) => f.originFileObj).filter(Boolean);
         if (files.length > 0) {
-          // 检查文件大小
           const oversizedFiles = files.filter((f: File) => 
             uploadConfig && f.size > uploadConfig.max_file_size_mb * 1024 * 1024
           );
@@ -293,6 +385,7 @@ const DocumentUpload: React.FC = () => {
               renderItem={(task) => (
                 <List.Item
                   key={task.task_id}
+                  style={{ alignItems: 'flex-start' }}
                   actions={[
                     task.status === 'completed' && task.result && (
                       <Tooltip title="查看详情" key="view">
@@ -318,32 +411,22 @@ const DocumentUpload: React.FC = () => {
                   ]}
                 >
                   <List.Item.Meta
-                    avatar={<FileTextOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
+                    avatar={
+                      <div style={{ width: 40, textAlign: 'center' }}>
+                        {task.status === 'processing' ? (
+                          <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#1890ff' }} spin />} />
+                        ) : (
+                          <FileTextOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+                        )}
+                      </div>
+                    }
                     title={
                       <Space>
                         <span>{task.filename}</span>
                         {getStatusTag(task.status)}
                       </Space>
                     }
-                    description={
-                      task.status === 'processing' ? (
-                        <div style={{ marginTop: 8 }}>
-                          <Space style={{ marginBottom: 4 }}>
-                            <Tag color={stageColors[task.progress.stage]}>
-                              {stageLabels[task.progress.stage] || task.progress.stage}
-                            </Tag>
-                            <span style={{ color: '#666' }}>{task.progress.message}</span>
-                          </Space>
-                          <Progress 
-                            percent={task.progress.percentage} 
-                            size="small"
-                            status="active"
-                          />
-                        </div>
-                      ) : task.status === 'failed' ? (
-                        <span style={{ color: '#ff4d4f' }}>{task.error}</span>
-                      ) : null
-                    }
+                    description={renderProgress(task)}
                   />
                 </List.Item>
               )}
