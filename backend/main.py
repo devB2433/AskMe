@@ -10,9 +10,11 @@ from pathlib import Path
 from routes.document_api import router as document_router
 from routes.search_api import router as search_router
 from routes.user_api import router as user_router
+from routes.websocket_api import router as websocket_router
 from services.embedding_encoder import EmbeddingEncoder
 from services.milvus_integration import MilvusClient
 from services.state_manager import StateManager, StateType, StateStatus
+from services.task_queue import init_tasks_table
 
 # 配置日志
 logging.basicConfig(
@@ -154,6 +156,9 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("向量索引已存在")
         
+        # 初始化任务队列表
+        init_tasks_table()
+        
         logger.info("服务初始化完成")
     except Exception as e:
         logger.error(f"服务初始化失败: {e}")
@@ -186,6 +191,7 @@ app.add_middleware(
 app.include_router(document_router)
 app.include_router(search_router)
 app.include_router(user_router)
+app.include_router(websocket_router)
 
 @app.get("/", summary="API根路径")
 async def root():

@@ -106,6 +106,15 @@ async def logout(authorization: Optional[str] = Header(None)):
 @router.get("/me", summary="获取当前用户信息")
 async def get_me(user = Depends(get_current_user)):
     """获取当前登录用户信息"""
+    # user可能是字典或对象
+    if isinstance(user, dict):
+        return {
+            "user_id": user.get("user_id") or user.get("id"),
+            "username": user.get("username"),
+            "name": user.get("name"),
+            "department": user.get("department"),
+            "email": user.get("email")
+        }
     return {
         "user_id": user.user_id,
         "username": user.username,

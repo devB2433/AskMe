@@ -83,7 +83,8 @@ async def search_documents(
             token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
             user = user_service.get_user_by_token(token)
             if user:
-                user_department = user.department
+                # user可能是字典或对象
+                user_department = user.get("department") if isinstance(user, dict) else user.department
         
         # 验证部门权限
         if actual_team:

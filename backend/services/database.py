@@ -41,8 +41,7 @@ class Database:
             DB_PATH.parent.mkdir(parents=True, exist_ok=True)
             self._local.connection = sqlite3.connect(
                 str(DB_PATH),
-                check_same_thread=False,
-                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
+                check_same_thread=False
             )
             self._local.connection.row_factory = sqlite3.Row
             # 启用外键约束

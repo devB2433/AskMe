@@ -1,49 +1,335 @@
-import React, { useState } from 'react';
-import { Upload, Button, message, Card } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Upload, Button, message, Card, Progress, List, Tag, Space, Modal, Badge, Tooltip } from 'antd';
+import { 
+  UploadOutlined, 
+  CheckCircleOutlined, 
+  CloseCircleOutlined, 
+  ClockCircleOutlined,
+  LoadingOutlined,
+  FileTextOutlined,
+  DeleteOutlined,
+  EyeOutlined
+} from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
+
+interface TaskProgress {
+  stage: string;
+  current: number;
+  total: number;
+  message: string;
+  percentage: number;
+}
+
+interface Task {
+  task_id: string;
+  task_type: string;
+  filename: string;
+  status: 'pending' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  progress: TaskProgress;
+  result?: any;
+  error?: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
+interface UploadConfig {
+  max_batch_size: number;
+  max_file_size_mb: number;
+  allowed_extensions: string[];
+  concurrent_uploads: number;
+}
+
+const stageLabels: Record<string, string> = {
+  uploading: '上传中',
+  parsing: '解析中',
+  chunking: '分块中',
+  embedding: '向量化中',
+  storing: '存储中',
+  completed: '已完成'
+};
+
+const stageColors: Record<string, string> = {
+  uploading: '#1890ff',
+  parsing: '#722ed1',
+  chunking: '#13c2c2',
+  embedding: '#fa8c16',
+  storing: '#52c41a',
+  completed: '#52c41a'
+};
 
 const DocumentUpload: React.FC = () => {
   const [uploading, setUploading] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [uploadConfig, setUploadConfig] = useState<UploadConfig | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const { token, user } = useAuth();
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // 获取上传配置
+  useEffect(() => {
+    fetch('http://localhost:8001/api/documents/config')
+      .then(res => res.json())
+      .then(data => setUploadConfig(data))
+      .catch(err => console.error('获取配置失败:', err));
+  }, []);
+
+  // WebSocket连接
+  const connectWebSocket = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    
+    const ws = new WebSocket('ws://localhost:8001/ws/tasks');
+    
+    ws.onopen = () => {
+      console.log('WebSocket已连接');
+      setWsConnected(true);
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'task_progress') {
+          // 更新任务进度
+          setTasks(prev => {
+            const taskIndex = prev.findIndex(t => t.task_id === data.data.task_id);
+            if (taskIndex >= 0) {
+              const newTasks = [...prev];
+              newTasks[taskIndex] = data.data;
+              return newTasks;
+            }
+            return [data.data, ...prev];
+          });
+        } else if (data.type === 'status') {
+          // 全量状态更新
+          setTasks(data.tasks || []);
+        } else if (data.type === 'ping') {
+          ws.send('pong');
+        }
+      } catch (e) {
+        console.error('解析WebSocket消息失败:', e);
+      }
+    };
+    
+    ws.onclose = () => {
+      console.log('WebSocket已断开');
+      setWsConnected(false);
+      // 5秒后重连
+      setTimeout(connectWebSocket, 5000);
+    };
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket错误:', error);
+    };
+    
+    wsRef.current = ws;
+  }, []);
+
+  useEffect(() => {
+    connectWebSocket();
+    return () => {
+      wsRef.current?.close();
+    };
+  }, [connectWebSocket]);
+
+  // 批量上传
+  const handleBatchUpload = async (files: File[]) => {
+    if (!uploadConfig) return;
+    
+    if (files.length > uploadConfig.max_batch_size) {
+      message.error(`最多支持上传${uploadConfig.max_batch_size}个文件`);
+      return;
+    }
+    
+    setUploading(true);
+    
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append('files', file);
+    });
+    
+    try {
+      const response = await fetch('http://localhost:8001/api/documents/batch', {
+        method: 'POST',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: formData
+      });
+      
+      const result = await response.json();
+      
+      if (result.submitted > 0) {
+        message.success(`成功提交${result.submitted}个文档处理任务`);
+      }
+      
+      if (result.duplicates > 0) {
+        message.warning(`${result.duplicates}个文件已存在，已跳过`);
+      }
+      
+      // 显示失败的任务
+      result.tasks.forEach((t: any) => {
+        if (!t.success) {
+          message.error(`${t.filename}: ${t.error}`);
+        }
+      });
+      
+    } catch (error) {
+      message.error('上传失败');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // 获取状态标签
+  const getStatusTag = (status: string) => {
+    const config: Record<string, { color: string; icon: React.ReactNode; text: string }> = {
+      pending: { color: 'default', icon: <ClockCircleOutlined />, text: '等待中' },
+      queued: { color: 'blue', icon: <ClockCircleOutlined />, text: '队列中' },
+      processing: { color: 'processing', icon: <LoadingOutlined />, text: '处理中' },
+      completed: { color: 'success', icon: <CheckCircleOutlined />, text: '已完成' },
+      failed: { color: 'error', icon: <CloseCircleOutlined />, text: '失败' },
+      cancelled: { color: 'warning', icon: <CloseCircleOutlined />, text: '已取消' }
+    };
+    
+    const { color, icon, text } = config[status] || config.pending;
+    return <Tag color={color} icon={icon}>{text}</Tag>;
+  };
 
   const props = {
     name: 'file',
-    action: 'http://localhost:8001/api/documents/upload',
-    headers: {
-      authorization: token ? `Bearer ${token}` : '',
-    },
-    onChange(info: any) {
-      if (info.file.status === 'uploading') {
-        setUploading(true);
+    multiple: true,
+    showUploadList: false,
+    beforeUpload: (file: File, fileList: File[]) => {
+      // 检查文件大小
+      if (uploadConfig && file.size > uploadConfig.max_file_size_mb * 1024 * 1024) {
+        message.error(`文件 ${file.name} 超过大小限制(${uploadConfig.max_file_size_mb}MB)`);
+        return false;
       }
-      if (info.file.status === 'done') {
-        message.success(`${info.file.name} 上传成功`);
-        setUploading(false);
-      } else if (info.file.status === 'error') {
-        message.error(`${info.file.name} 上传失败`);
-        setUploading(false);
-      }
+      return true;
     },
+    customRequest: async (options: any) => {
+      // 不使用默认上传，而是收集所有文件后批量上传
+    },
+    onChange: (info: any) => {
+      // 收集所有文件，当用户选择完成后上传
+      if (info.fileList.length > 0) {
+        const files = info.fileList.map((f: any) => f.originFileObj).filter(Boolean);
+        if (files.length > 0) {
+          handleBatchUpload(files);
+        }
+      }
+    }
   };
 
   return (
-    <Card title="文档上传" style={{ maxWidth: 600, margin: '0 auto' }}>
-      {user && (
-        <div style={{ marginBottom: 16, color: '#1890ff' }}>
-          上传的文档将归属到: <strong>{user.department}</strong>
-        </div>
-      )}
-      <Upload {...props}>
-        <Button icon={<UploadOutlined />} loading={uploading}>
-          选择文件上传
-        </Button>
-      </Upload>
-      <div style={{ marginTop: 16, color: '#666' }}>
-        <p>支持格式：PDF、Word、Excel、PPT、图片等</p>
-        <p>文件将自动进行解析和向量化处理</p>
-      </div>
-    </Card>
+    <div style={{ padding: '20px' }}>
+      <Card 
+        title={
+          <Space>
+            <span>文档上传</span>
+            <Badge 
+              status={wsConnected ? 'success' : 'error'} 
+              text={wsConnected ? '实时连接' : '连接断开'}
+            />
+          </Space>
+        }
+        extra={
+          uploadConfig && (
+            <Space>
+              <Tag color="blue">最多{uploadConfig.max_batch_size}个文件</Tag>
+              <Tag color="green">单文件{uploadConfig.max_file_size_mb}MB</Tag>
+            </Space>
+          )
+        }
+      >
+        {user && (
+          <div style={{ marginBottom: 16, color: '#1890ff' }}>
+            上传的文档将归属到: <strong>{user.department}</strong>
+          </div>
+        )}
+        
+        <Upload.Dragger {...props} style={{ marginBottom: 16 }}>
+          <p className="ant-upload-drag-icon">
+            <UploadOutlined />
+          </p>
+          <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+          <p className="ant-upload-hint">
+            支持批量上传，最多{uploadConfig?.max_batch_size || 20}个文件
+          </p>
+        </Upload.Dragger>
+
+        {/* 任务队列 */}
+        {tasks.length > 0 && (
+          <Card 
+            title={`任务队列 (${tasks.length})`}
+            size="small"
+            style={{ marginTop: 16 }}
+          >
+            <List
+              dataSource={tasks}
+              renderItem={(task) => (
+                <List.Item
+                  key={task.task_id}
+                  actions={[
+                    task.status === 'completed' && task.result && (
+                      <Tooltip title="查看详情">
+                        <Button 
+                          type="link" 
+                          size="small"
+                          icon={<EyeOutlined />}
+                          onClick={() => {
+                            Modal.info({
+                              title: '处理结果',
+                              content: (
+                                <div>
+                                  <p>文档ID: {task.result.document_id}</p>
+                                  <p>分块数: {task.result.chunks_count}</p>
+                                  <p>向量化: {task.result.vector_stored ? '成功' : '失败'}</p>
+                                </div>
+                              )
+                            });
+                          }}
+                        />
+                      </Tooltip>
+                    )
+                  ]}
+                >
+                  <List.Item.Meta
+                    avatar={<FileTextOutlined style={{ fontSize: 24, color: '#1890ff' }} />}
+                    title={
+                      <Space>
+                        <span>{task.filename}</span>
+                        {getStatusTag(task.status)}
+                      </Space>
+                    }
+                    description={
+                      task.status === 'processing' ? (
+                        <div style={{ marginTop: 8 }}>
+                          <Space style={{ marginBottom: 4 }}>
+                            <Tag color={stageColors[task.progress.stage]}>
+                              {stageLabels[task.progress.stage] || task.progress.stage}
+                            </Tag>
+                            <span style={{ color: '#666' }}>{task.progress.message}</span>
+                          </Space>
+                          <Progress 
+                            percent={task.progress.percentage} 
+                            size="small"
+                            status="active"
+                          />
+                        </div>
+                      ) : task.status === 'failed' ? (
+                        <span style={{ color: '#ff4d4f' }}>{task.error}</span>
+                      ) : null
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          </Card>
+        )}
+      </Card>
+    </div>
   );
 };
 

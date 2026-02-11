@@ -14,6 +14,8 @@ from services.milvus_integration import MilvusClient
 from services.embedding_encoder import EmbeddingEncoder
 from services.state_manager import StateManager, StateType, StateStatus
 from services.database import db
+from services.config import config
+from services.task_queue import task_queue, TaskStage, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,13 @@ def get_services():
         state_manager = StateManager()
     
     return document_processor, milvus_client, embedding_encoder, state_manager
+
+def get_state_manager():
+    """仅获取状态管理器（轻量级，不加载模型）"""
+    global state_manager
+    if state_manager is None:
+        state_manager = StateManager()
+    return state_manager
 
 @router.post("/upload", summary="上传文档")
 async def upload_document(
@@ -81,8 +90,9 @@ async def upload_document(
             token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
             user = user_service.get_user_by_token(token)
             if user:
-                actual_team_id = user.department
-                uploaded_by = user.username
+                # user可能是字典或对象
+                actual_team_id = user.get("department") if isinstance(user, dict) else user.department
+                uploaded_by = user.get("username") if isinstance(user, dict) else user.username
         
         # 读取文件内容并计算哈希
         content = await file.read()
@@ -267,6 +277,291 @@ async def upload_document(
         
         raise HTTPException(status_code=500, detail=f"文档处理失败: {str(e)}")
 
+
+@router.post("/batch", summary="批量上传文档")
+async def batch_upload_documents(
+    files: List[UploadFile] = File(...),
+    collection_name: str = Form("default_collection"),
+    chunk_size: int = Form(500),
+    chunk_overlap: int = Form(50),
+    enable_metadata: bool = Form(True),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    批量上传文档
+    
+    Args:
+        files: 上传的文件列表（最多20个，可通过配置修改）
+        collection_name: 集合名称
+        chunk_size: 分块大小
+        chunk_overlap: 分块重叠
+        enable_metadata: 是否启用元数据提取
+        authorization: 用户token
+        
+    Returns:
+        批量上传结果，包含任务ID列表
+    """
+    max_batch_size = config.get("upload.max_batch_size", 20)
+    
+    if len(files) > max_batch_size:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"批量上传数量超限：最多{max_batch_size}个文件，当前{len(files)}个"
+        )
+    
+    # 获取用户信息
+    actual_team_id = "default"
+    uploaded_by = "anonymous"
+    
+    if authorization:
+        from services.user_service import user_service
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        user = user_service.get_user_by_token(token)
+        if user:
+            actual_team_id = user.get("department") if isinstance(user, dict) else user.department
+            uploaded_by = user.get("username") if isinstance(user, dict) else user.username
+    
+    # 注册文档处理任务处理器
+    def process_document_task(task):
+        """处理文档任务"""
+        try:
+            processor, milvus, encoder, state_mgr = get_services()
+            task_data = task.data
+            
+            # 更新进度：解析中
+            task_queue.update_progress(
+                task.task_id, TaskStage.PARSING, 10, 100, "正在解析文档..."
+            )
+            
+            # 处理文档
+            chunks = processor.process_document(
+                task_data["file_path"], 
+                task_data["filename"]
+            )
+            
+            # 更新进度：分块完成
+            task_queue.update_progress(
+                task.task_id, TaskStage.CHUNKING, 30, 100, 
+                f"文档分块完成，共{len(chunks)}个分块"
+            )
+            
+            # 保存解析后的文本内容
+            import json
+            upload_dir = Path("uploads")
+            text_content_path = upload_dir / f"{task_data['document_id']}_content.json"
+            with open(text_content_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "filename": task_data["filename"],
+                    "chunks": chunks,
+                    "full_text": "\n".join([c.get("content", "") for c in chunks])
+                }, f, ensure_ascii=False, indent=2)
+            
+            # 更新进度：向量化中
+            task_queue.update_progress(
+                task.task_id, TaskStage.EMBEDDING, 50, 100, "正在进行向量化..."
+            )
+            
+            # 向量编码和存储
+            vector_stored = False
+            try:
+                chunk_texts = [c.get("content", "") for c in chunks]
+                vectors = encoder.encode_batch(chunk_texts)
+                
+                # 更新进度：存储中
+                task_queue.update_progress(
+                    task.task_id, TaskStage.STORING, 80, 100, "正在存储向量..."
+                )
+                
+                # 存储到Milvus
+                import time
+                collection_name_actual = "askme_documents"
+                chunk_ids = milvus.insert_vectors(
+                    collection_name=collection_name_actual,
+                    vectors=vectors,
+                    documents=[{
+                        "document_id": task_data["document_id"],
+                        "team_id": task_data["team_id"],
+                        "chunk_id": f"{task_data['document_id']}_{i}",
+                        "content": c.get("content", "")[:500],
+                        "metadata": {"chunk_index": i},
+                        "created_at": int(time.time())
+                    } for i, c in enumerate(chunks)]
+                )
+                
+                logger.info(f"向量化存储完成: {len(chunk_ids)} 个向量")
+                vector_stored = True
+            except Exception as e:
+                logger.warning(f"向量存储失败: {e}")
+            
+            # 插入文档记录到数据库
+            db.execute(
+                """INSERT INTO documents 
+                   (id, filename, content_type, team_id, uploaded_by, status, chunks_count, vector_stored, file_size, file_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    task_data["document_id"], 
+                    task_data["filename"], 
+                    task_data["content_type"],
+                    task_data["team_id"], 
+                    task_data["uploaded_by"],
+                    'completed', 
+                    len(chunks), 
+                    1 if vector_stored else 0, 
+                    task_data["file_size"], 
+                    task_data["file_hash"]
+                )
+            )
+            db.conn.commit()
+            
+            return {
+                "document_id": task_data["document_id"],
+                "filename": task_data["filename"],
+                "chunks_count": len(chunks),
+                "vector_stored": vector_stored,
+                "team_id": task_data["team_id"]
+            }
+            
+        except Exception as e:
+            logger.error(f"任务处理失败: {e}")
+            raise
+    
+    # 注册处理器
+    task_queue.register_handler("document_upload", process_document_task)
+    
+    # 提交任务
+    tasks = []
+    upload_dir = Path("uploads")
+    upload_dir.mkdir(exist_ok=True)
+    
+    for file in files:
+        try:
+            # 读取文件内容并计算哈希
+            content = await file.read()
+            file_hash = hashlib.md5(content).hexdigest()
+            file_size = len(content)
+            
+            # 重置文件指针
+            await file.seek(0)
+            
+            # 检查文件哈希是否已存在
+            existing_doc = db.fetchone(
+                "SELECT id, filename FROM documents WHERE file_hash = ?",
+                (file_hash,)
+            )
+            
+            if existing_doc:
+                tasks.append({
+                    "success": False,
+                    "filename": file.filename,
+                    "error": f"文件已存在: {existing_doc['filename']}",
+                    "duplicate": True
+                })
+                continue
+            
+            # 生成文档ID
+            document_id = f"doc_{uuid.uuid4().hex[:12]}"
+            
+            # 保存文件
+            file_path = upload_dir / f"{document_id}_{file.filename}"
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            
+            # 提交任务到队列
+            task = task_queue.submit_task(
+                task_type="document_upload",
+                filename=file.filename,
+                data={
+                    "document_id": document_id,
+                    "filename": file.filename,
+                    "content_type": file.content_type,
+                    "file_path": str(file_path),
+                    "team_id": actual_team_id,
+                    "uploaded_by": uploaded_by,
+                    "file_size": file_size,
+                    "file_hash": file_hash
+                }
+            )
+            
+            tasks.append({
+                "success": True,
+                "filename": file.filename,
+                "task_id": task.task_id,
+                "document_id": document_id
+            })
+            
+        except Exception as e:
+            tasks.append({
+                "success": False,
+                "filename": file.filename,
+                "error": str(e)
+            })
+    
+    return {
+        "total": len(files),
+        "submitted": sum(1 for t in tasks if t.get("success")),
+        "duplicates": sum(1 for t in tasks if t.get("duplicate")),
+        "tasks": tasks,
+        "queue_status": task_queue.get_queue_status()
+    }
+
+
+@router.get("/tasks", summary="获取任务列表")
+async def get_tasks(
+    status: Optional[str] = Query(None),
+    limit: int = Query(20)
+):
+    """
+    获取任务列表
+    
+    Args:
+        status: 状态过滤
+        limit: 返回数量限制
+        
+    Returns:
+        任务列表
+    """
+    status_enum = None
+    if status:
+        try:
+            status_enum = TaskStatus(status)
+        except ValueError:
+            pass
+    
+    tasks = task_queue.get_all_tasks(status_enum)
+    return {
+        "tasks": [t.to_dict() for t in tasks[:limit]],
+        "queue_status": task_queue.get_queue_status()
+    }
+
+
+@router.get("/tasks/{task_id}", summary="获取任务详情")
+async def get_task(task_id: str):
+    """
+    获取任务详情
+    
+    Args:
+        task_id: 任务ID
+        
+    Returns:
+        任务详情
+    """
+    task = task_queue.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    return task.to_dict()
+
+
+@router.get("/config", summary="获取上传配置")
+async def get_upload_config():
+    """获取上传相关配置"""
+    return {
+        "max_batch_size": config.get("upload.max_batch_size"),
+        "max_file_size_mb": config.get("upload.max_file_size_mb"),
+        "allowed_extensions": config.get("upload.allowed_extensions"),
+        "concurrent_uploads": config.get("upload.concurrent_uploads")
+    }
+
 @router.get("/{document_id}", summary="获取文档信息")
 async def get_document(document_id: str):
     """
@@ -279,7 +574,7 @@ async def get_document(document_id: str):
         文档信息
     """
     try:
-        _, _, _, state_mgr = get_services()
+        state_mgr = get_state_manager()
         
         # 查询文档状态
         states = state_mgr.query_states(
@@ -329,7 +624,7 @@ async def list_documents(
         文档列表
     """
     try:
-        _, _, _, state_mgr = get_services()
+        state_mgr = get_state_manager()
         
         # 查询文档状态
         states = state_mgr.query_states(state_type=StateType.DOCUMENT)
@@ -340,14 +635,16 @@ async def list_documents(
         documents = []
         for state in filtered_states:
             processing_result = state.data.get("processing_result", {})
+            # status可能是字符串或枚举
+            status_str = state.status.value if hasattr(state.status, 'value') else str(state.status)
             documents.append({
                 "document_id": state.entity_id,
-                "status": state.status.value,
+                "status": status_str,
                 "filename": state.data.get("filename", "Unknown"),
                 "collection_name": state.data.get("collection_name", "default"),
                 "chunks_count": processing_result.get("chunks_count", 0),
-                "created_at": state.created_at.isoformat(),
-                "updated_at": state.updated_at.isoformat()
+                "created_at": state.created_at.isoformat() if hasattr(state.created_at, 'isoformat') else str(state.created_at),
+                "updated_at": state.updated_at.isoformat() if hasattr(state.updated_at, 'isoformat') else str(state.updated_at)
             })
         
         return {
@@ -373,7 +670,7 @@ async def delete_document(document_id: str):
         删除结果
     """
     try:
-        _, _, _, state_mgr = get_services()
+        state_mgr = get_state_manager()
         
         # 检查文档是否存在
         states = state_mgr.query_states(
