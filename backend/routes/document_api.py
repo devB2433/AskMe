@@ -433,6 +433,9 @@ async def batch_upload_documents(
     upload_dir = Path("uploads")
     upload_dir.mkdir(exist_ok=True)
     
+    # 当前批次已处理的哈希（用于检测同批次重复）
+    batch_hashes = {}
+    
     for file in files:
         try:
             # 读取文件内容并计算哈希
@@ -443,7 +446,17 @@ async def batch_upload_documents(
             # 重置文件指针
             await file.seek(0)
             
-            # 检查文件哈希是否已存在
+            # 检查当前批次是否已处理过相同文件
+            if file_hash in batch_hashes:
+                tasks.append({
+                    "success": False,
+                    "filename": file.filename,
+                    "error": f"文件已存在: {batch_hashes[file_hash]}",
+                    "duplicate": True
+                })
+                continue
+            
+            # 检查文件哈希是否已存在数据库中
             existing_doc = db.fetchone(
                 "SELECT id, filename FROM documents WHERE file_hash = ?",
                 (file_hash,)
@@ -457,6 +470,9 @@ async def batch_upload_documents(
                     "duplicate": True
                 })
                 continue
+            
+            # 记录当前批次的哈希
+            batch_hashes[file_hash] = file.filename
             
             # 生成文档ID
             document_id = f"doc_{uuid.uuid4().hex[:12]}"
