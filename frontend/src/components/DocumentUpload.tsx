@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Upload, Button, message, Card, Progress, List, Tag, Space, Modal, Badge, Tooltip, Row, Col, Spin } from 'antd';
+import { Upload, Button, message, Card, Progress, List, Tag, Space, Modal, Badge, Tooltip } from 'antd';
 import { 
   UploadOutlined, 
   CheckCircleOutlined, 
   CloseCircleOutlined, 
   ClockCircleOutlined,
-  LoadingOutlined,
-  FileTextOutlined,
   DeleteOutlined,
   EyeOutlined,
   SyncOutlined
@@ -401,25 +399,16 @@ const DocumentUpload: React.FC = () => {
                   style={{ padding: '12px 0' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 12 }}>
-                    {/* 图标 */}
-                    <div style={{ width: 40, textAlign: 'center', flexShrink: 0 }}>
-                      {task.status === 'processing' ? (
-                        <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#1890ff' }} spin />} />
-                      ) : (
-                        <FileTextOutlined style={{ fontSize: 24, color: '#1890ff' }} />
-                      )}
-                    </div>
-                    
-                    {/* 文件名和状态 */}
-                    <div style={{ flexShrink: 0, minWidth: 200 }}>
+                    {/* 文件名和状态 - 固定宽度 */}
+                    <div style={{ width: 350, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       <Space>
                         <span style={{ fontWeight: 500 }}>{task.filename}</span>
                         {getStatusTag(task.status)}
                       </Space>
                     </div>
                     
-                    {/* 进度条 - 占据剩余空间 */}
-                    <div style={{ flex: 1, marginLeft: 16 }}>
+                    {/* 进度条 - 固定位置 */}
+                    <div style={{ flexShrink: 0 }}>
                       {renderCompactProgress(task)}
                     </div>
                     
