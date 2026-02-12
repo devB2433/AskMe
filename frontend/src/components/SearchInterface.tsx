@@ -88,17 +88,28 @@ const SearchInterface: React.FC = () => {
     }
     
     const deptQuery = value.substring(1).toLowerCase();
+    
+    // 输入/后立即显示所有部门
     if (!deptQuery) {
-      setOptions([]);
+      try {
+        const response = await axios.get(`http://localhost:8001/api/users/departments`);
+        const departments = response.data.departments || [];
+        setOptions(departments.map((dept: any) => ({
+          value: `/${dept.name} `,
+          label: dept.name
+        })));
+      } catch (error) {
+        setOptions([]);
+      }
       return;
     }
     
     try {
       const response = await axios.get(`http://localhost:8001/api/users/departments/suggest?q=${deptQuery}`);
       const departments = response.data.departments || [];
-      setOptions(departments.map((dept: string) => ({
-        value: `/${dept} `,
-        label: dept
+      setOptions(departments.map((dept: any) => ({
+        value: `/${dept.name || dept} `,
+        label: dept.name || dept
       })));
     } catch (error) {
       setOptions([]);
