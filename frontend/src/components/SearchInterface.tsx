@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress, Switch, Slider, Collapse } from 'antd';
-import { SearchOutlined, LoadingOutlined, SettingOutlined } from '@ant-design/icons';
+import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress } from 'antd';
+import { SearchOutlined, LoadingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -19,10 +19,31 @@ const SearchInterface: React.FC = () => {
   const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
   const { user, token } = useAuth();
   
-  // 搜索参数状态
-  const [useRerank, setUseRerank] = useState(true);
-  const [useQueryEnhance, setUseQueryEnhance] = useState(false);
-  const [recallSize, setRecallSize] = useState(15);
+  // 搜索精度预设（从系统设置读取）
+  const [searchConfig, setSearchConfig] = useState({
+    useRerank: true,
+    useQueryEnhance: false,
+    recallSize: 15
+  });
+  
+  // 加载搜索配置
+  useEffect(() => {
+    const loadConfig = () => {
+      const preset = localStorage.getItem('searchPreset') || 'normal';
+      const configs: Record<string, any> = {
+        fast: { useRerank: false, useQueryEnhance: false, recallSize: 10 },
+        normal: { useRerank: true, useQueryEnhance: false, recallSize: 15 },
+        precise: { useRerank: true, useQueryEnhance: true, recallSize: 30 }
+      };
+      setSearchConfig(configs[preset] || configs.normal);
+    };
+    
+    loadConfig();
+    
+    // 监听storage变化（其他标签页修改设置）
+    window.addEventListener('storage', loadConfig);
+    return () => window.removeEventListener('storage', loadConfig);
+  }, []);
 
   // 处理输入变化，检测部门提示
   const handleInputChange = (value: string) => {
@@ -85,9 +106,9 @@ const SearchInterface: React.FC = () => {
         params: { 
           q: value, 
           limit: 10,
-          use_rerank: useRerank,
-          use_query_enhance: useQueryEnhance,
-          recall_size: recallSize
+          use_rerank: searchConfig.useRerank,
+          use_query_enhance: searchConfig.useQueryEnhance,
+          recall_size: searchConfig.recallSize
         },
         headers
       });
@@ -121,41 +142,9 @@ const SearchInterface: React.FC = () => {
             loading={loading}
           />
         </AutoComplete>
-        
-        {/* 高级搜索选项 */}
-        <Collapse 
-          ghost 
-          style={{ marginTop: 12 }}
-          items={[{
-            key: '1',
-            label: <span><SettingOutlined /> 高级选项</span>,
-            children: (
-              <div style={{ padding: '8px 0' }}>
-                <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>重排序（提高准确率）</span>
-                  <Switch checked={useRerank} onChange={setUseRerank} />
-                </div>
-                <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>查询增强（提高召回率）</span>
-                  <Switch checked={useQueryEnhance} onChange={setUseQueryEnhance} />
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                    <span>召回数量</span>
-                    <span style={{ color: '#666' }}>{recallSize} 个</span>
-                  </div>
-                  <Slider 
-                    min={5} 
-                    max={50} 
-                    value={recallSize} 
-                    onChange={setRecallSize}
-                    marks={{ 5: '5', 15: '15', 30: '30', 50: '50' }}
-                  />
-                </div>
-              </div>
-            )
-          }]}
-        />
+        <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+          搜索精度可在「系统设置」中调整
+        </div>
       </Card>
       
       {/* 搜索中进度条 */}

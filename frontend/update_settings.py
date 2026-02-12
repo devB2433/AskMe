@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider } from 'antd';
-import { SaveOutlined } from '@ant-design/icons';
-import axios from 'axios';
+with open('src/components/Settings.tsx', 'r', encoding='utf-8') as f:
+    content = f.read()
 
-const { Option } = Select;
+# 添加搜索精度预设
+old_import = "import { Card, Form, Input, Button, Switch, Select, message, Spin } from 'antd';"
+new_import = "import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider } from 'antd';"
+content = content.replace(old_import, new_import)
 
-const API_BASE = 'http://localhost:8001/api';
+# 添加搜索精度状态和配置定义
+old_state = '''const [form] = Form.useForm();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);'''
 
-const Settings: React.FC = () => {
-  const [form] = Form.useForm();
+new_state = '''const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchPreset, setSearchPreset] = useState<string>('normal');
@@ -18,9 +21,38 @@ const Settings: React.FC = () => {
     fast: { name: '低精度高速度', useRerank: false, useQueryEnhance: false, recallSize: 10 },
     normal: { name: '正常', useRerank: true, useQueryEnhance: false, recallSize: 15 },
     precise: { name: '高精度低速度', useRerank: true, useQueryEnhance: true, recallSize: 30 }
-  };
+  };'''
 
-  // 加载系统配置
+content = content.replace(old_state, new_state)
+
+# 修改useEffect加载配置
+old_effect = '''// 加载系统配置
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const response = await axios.get(`${API_BASE}/config`);
+        form.setFieldsValue({
+          embedding_model: response.data.embedding_model || 'BAAI/bge-small-zh-v1.5',
+          chunk_size: response.data.chunk_size || 800,
+          top_k: response.data.top_k || 10,
+          enable_ocr: response.data.enable_ocr ?? true,
+        });
+      } catch (error) {
+        // 使用默认值
+        form.setFieldsValue({
+          embedding_model: 'BAAI/bge-small-zh-v1.5',
+          chunk_size: 800,
+          top_k: 10,
+          enable_ocr: true,
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchConfig();
+  }, [form]);'''
+
+new_effect = '''// 加载系统配置
   useEffect(() => {
     const fetchConfig = async () => {
       try {
@@ -55,64 +87,23 @@ const Settings: React.FC = () => {
     setSearchPreset(value);
     localStorage.setItem('searchPreset', value);
     message.success(`已切换为: ${SEARCH_PRESETS[value as keyof typeof SEARCH_PRESETS].name}`);
-  };
+  };'''
 
-  const handleSave = async (values: any) => {
-    setSaving(true);
-    try {
-      await axios.post(`${API_BASE}/config`, values);
-      message.success('设置保存成功');
-    } catch (error) {
-      message.success('设置已保存到本地');
-    } finally {
-      setSaving(false);
-    }
-  };
+content = content.replace(old_effect, new_effect)
 
-  if (loading) {
-    return (
-      <Card style={{ maxWidth: 600, textAlign: 'center' }}>
-        <Spin tip="加载配置中..." />
-      </Card>
-    );
-  }
-
-  return (
-    <Card title="系统设置" style={{ maxWidth: 600 }}>
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={handleSave}
-      >
-        <Form.Item
-          label="嵌入模型"
-          name="embedding_model"
-          extra="中文推荐使用 BAAI/bge-small-zh-v1.5"
+# 在表单中添加搜索精度预设选项
+old_form_content = '''<Form.Item
+          label="启用OCR"
+          name="enable_ocr"
+          valuePropName="checked"
+          extra="对图片类文档进行文字识别"
         >
-          <Select>
-            <Option value="BAAI/bge-small-zh-v1.5">BAAI/bge-small-zh-v1.5 (中文推荐)</Option>
-            <Option value="sentence-transformers/all-MiniLM-L6-v2">all-MiniLM-L6-v2 (英文)</Option>
-            <Option value="BAAI/bge-base-zh-v1.5">BAAI/bge-base-zh-v1.5 (更大更准)</Option>
-          </Select>
+          <Switch />
         </Form.Item>
 
-        <Form.Item
-          label="分块大小"
-          name="chunk_size"
-          extra="建议 500-1000，保留更多语义上下文"
-        >
-          <Input type="number" min={200} max={2000} />
-        </Form.Item>
+        <Form.Item>'''
 
-        <Form.Item
-          label="返回结果数量"
-          name="top_k"
-          extra="搜索时返回的最大结果数"
-        >
-          <Input type="number" min={1} max={20} />
-        </Form.Item>
-
-        <Form.Item
+new_form_content = '''<Form.Item
           label="启用OCR"
           name="enable_ocr"
           valuePropName="checked"
@@ -140,14 +131,11 @@ const Settings: React.FC = () => {
           </div>
         </div>
 
-        <Form.Item>
-          <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
-            保存设置
-          </Button>
-        </Form.Item>
-      </Form>
-    </Card>
-  );
-};
+        <Form.Item>'''
 
-export default Settings;
+content = content.replace(old_form_content, new_form_content)
+
+with open('src/components/Settings.tsx', 'w', encoding='utf-8') as f:
+    f.write(content)
+
+print('Settings更新完成')
