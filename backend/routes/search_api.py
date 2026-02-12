@@ -9,6 +9,7 @@ import json
 from services.state_manager import StateManager, StateType, StateStatus
 from services.embedding_encoder import EmbeddingEncoder
 from services.milvus_integration import MilvusClient
+from services.database import db
 
 logger = logging.getLogger(__name__)
 
@@ -125,29 +126,43 @@ async def search_documents(
                 logger.info(f"结果 doc_id={doc_id}, score={result.get('score')}")
                 if doc_id and doc_id not in seen_docs:
                     seen_docs.add(doc_id)
-                    # 获取文档信息
-                    doc_states = state_mgr.query_states(entity_id=doc_id)
-                    logger.info(f"查询状态结果: {len(doc_states) if doc_states else 0} 条")
-                    if doc_states:
-                        doc_state = doc_states[0]
+                    # 从SQLite数据库获取文档信息
+                    doc_record = db.fetchone(
+                        "SELECT filename, created_at FROM documents WHERE id = ?",
+                        (doc_id,)
+                    )
+                    if doc_record:
                         results.append({
                             "document_id": doc_id,
-                            "filename": doc_state.data.get("filename", "Unknown"),
+                            "filename": doc_record["filename"],
                             "score": result.get("score", 0.9),
                             "matches": [result.get("content", "")[:300]],
-                            "created_at": doc_state.created_at.isoformat(),
+                            "created_at": doc_record["created_at"],
                             "search_type": "vector"
                         })
                     else:
-                        # 如果状态查不到，直接返回向量结果
-                        results.append({
-                            "document_id": doc_id,
-                            "filename": "Unknown",
-                            "score": result.get("score", 0.9),
-                            "matches": [result.get("content", "")[:300]],
-                            "created_at": "",
-                            "search_type": "vector"
-                        })
+                        # 如果数据库查不到，尝试从状态管理器获取
+                        doc_states = state_mgr.query_states(entity_id=doc_id)
+                        if doc_states:
+                            doc_state = doc_states[0]
+                            results.append({
+                                "document_id": doc_id,
+                                "filename": doc_state.data.get("filename", "Unknown"),
+                                "score": result.get("score", 0.9),
+                                "matches": [result.get("content", "")[:300]],
+                                "created_at": doc_state.created_at.isoformat() if hasattr(doc_state.created_at, 'isoformat') else str(doc_state.created_at),
+                                "search_type": "vector"
+                            })
+                        else:
+                            # 如果都查不到，直接返回向量结果
+                            results.append({
+                                "document_id": doc_id,
+                                "filename": "Unknown",
+                                "score": result.get("score", 0.9),
+                                "matches": [result.get("content", "")[:300]],
+                                "created_at": "",
+                                "search_type": "vector"
+                            })
             
             if results:
                 logger.info(f"向量搜索返回 {len(results)} 个结果")
@@ -160,15 +175,16 @@ async def search_documents(
         except Exception as e:
             logger.warning(f"向量搜索失败，降级为文本搜索: {e}")
         
-        # 降级：文本搜索
-        completed_docs = [s for s in state_mgr.query_states(state_type=StateType.DOCUMENT) 
-                         if s.status == StateStatus.COMPLETED]
+        # 降级：文本搜索 - 从SQLite获取已完成的文档
+        completed_docs = db.fetchall(
+            "SELECT id, filename, created_at FROM documents WHERE status = 'completed'"
+        )
         query_lower = q.lower()
         upload_dir = Path("uploads")
         
-        for doc_state in completed_docs:
-            doc_id = doc_state.entity_id
-            filename = doc_state.data.get("filename", "")
+        for doc_record in completed_docs:
+            doc_id = doc_record["id"]
+            filename = doc_record["filename"]
             
             content_file = upload_dir / f"{doc_id}_content.json"
             if content_file.exists():
@@ -194,7 +210,7 @@ async def search_documents(
                                 "filename": filename,
                                 "score": 0.95,
                                 "matches": matches,
-                                "created_at": doc_state.created_at.isoformat(),
+                                "created_at": doc_record["created_at"],
                                 "search_type": "text"
                             })
                 except Exception as e:
