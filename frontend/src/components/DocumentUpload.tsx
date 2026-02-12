@@ -273,12 +273,12 @@ const DocumentUpload: React.FC = () => {
     }
     
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 100 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        <div style={{ width: 120 }}>
           <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 11, color: '#666' }}>文档处理</span>
             {task.status === 'processing' && phaseInfo.phase === 'upload' && (
-              <SyncOutlined spin style={{ fontSize: 10, color: '#1890ff' }} />
+              <SyncOutlined spin style={{ fontSize: 10, color: '#1890ff', marginLeft: 8 }} />
             )}
           </div>
           <Progress 
@@ -289,11 +289,11 @@ const DocumentUpload: React.FC = () => {
             style={{ margin: 0 }}
           />
         </div>
-        <div style={{ width: 100 }}>
+        <div style={{ width: 120 }}>
           <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 11, color: '#666' }}>向量化</span>
             {task.status === 'processing' && phaseInfo.phase === 'vector' && (
-              <SyncOutlined spin style={{ fontSize: 10, color: '#fa8c16' }} />
+              <SyncOutlined spin style={{ fontSize: 10, color: '#fa8c16', marginLeft: 8 }} />
             )}
           </div>
           <Progress 
