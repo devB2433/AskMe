@@ -14,8 +14,8 @@ from app.config import settings
 @dataclass
 class ProcessingConfig:
     """文档处理配置"""
-    chunk_size: int = 800  # 增大分块大小，保留更多语义
-    chunk_overlap: int = 200  # 增加重叠，提高检索召回率
+    chunk_size: int = 400  # 减小分块大小，提高检索精度
+    chunk_overlap: int = 100  # 增加重叠，提高检索召回率
     enable_metadata: bool = True
     enable_ocr: bool = True
     max_file_size: int = 100 * 1024 * 1024  # 100MB

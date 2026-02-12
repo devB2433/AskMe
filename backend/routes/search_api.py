@@ -103,10 +103,11 @@ async def search_documents(
             # 对查询进行向量化
             query_vector = encoder.encode_single(actual_query).tolist()
             
-            # 构建过滤条件
+            # 构建过滤条件 - 默认使用用户的部门
             filter_expr = None
-            if actual_team:
-                filter_expr = f'team_id == "{actual_team}"'
+            search_team = actual_team or user_department
+            if search_team:
+                filter_expr = f'team_id == "{search_team}"'
                 logger.info(f"应用team_id过滤: {filter_expr}")
             
             # 在Milvus中搜索相似向量

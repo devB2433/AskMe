@@ -243,8 +243,8 @@ async def api_info():
 # 系统配置存储
 SYSTEM_CONFIG = {
     "embedding_model": "BAAI/bge-large-zh-v1.5",
-    "chunk_size": 800,
-    "chunk_overlap": 200,
+    "chunk_size": 400,
+    "chunk_overlap": 100,
     "top_k": 10,
     "search_ef": 256,
     "content_store_length": 1000,
