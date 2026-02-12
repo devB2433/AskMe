@@ -242,89 +242,67 @@ const DocumentUpload: React.FC = () => {
     return <Tag color={color} icon={icon}>{text}</Tag>;
   };
 
-  // 渲染进度条
-  const renderProgress = (task: Task) => {
-    if (task.status === 'completed') {
-      return (
-        <Row gutter={16}>
-          <Col span={12}>
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>文档处理</span>
-            </div>
-            <Progress percent={100} size="small" status="success" />
-          </Col>
-          <Col span={12}>
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>向量化</span>
-            </div>
-            <Progress percent={100} size="small" status="success" />
-          </Col>
-        </Row>
-      );
-    }
-    
+  // 渲染进度条 - 紧凑版本（用于右侧显示）
+  const renderCompactProgress = (task: Task) => {
     if (task.status === 'failed') {
-      return <span style={{ color: '#ff4d4f' }}>{task.error}</span>;
+      return <span style={{ color: '#ff4d4f', fontSize: 12 }}>{task.error}</span>;
     }
     
-    if (task.status === 'processing') {
-      const stage = task.progress.stage;
-      const phaseInfo = getPhaseInfo(stage);
-      const percentage = task.progress.percentage;
-      
-      return (
-        <Row gutter={16}>
-          <Col span={12}>
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>
-                文档处理
-                {phaseInfo.phase === 'upload' && (
-                  <SyncOutlined spin style={{ marginLeft: 8, color: '#1890ff' }} />
-                )}
-              </span>
-            </div>
-            <Progress 
-              percent={phaseInfo.phase === 'upload' ? percentage : 100} 
-              size="small"
-              status={phaseInfo.phase === 'upload' ? 'active' : 'success'}
-            />
-          </Col>
-          <Col span={12}>
-            <div style={{ marginBottom: 4 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>
-                向量化
-                {phaseInfo.phase === 'vector' && (
-                  <SyncOutlined spin style={{ marginLeft: 8, color: '#fa8c16' }} />
-                )}
-              </span>
-            </div>
-            <Progress 
-              percent={phaseInfo.phase === 'vector' ? percentage : (phaseInfo.phase === 'complete' ? 100 : 0)} 
-              size="small"
-              status={phaseInfo.phase === 'vector' ? 'active' : (phaseInfo.phase === 'complete' ? 'success' : 'normal')}
-              strokeColor={phaseInfo.phase === 'vector' ? '#fa8c16' : undefined}
-            />
-          </Col>
-        </Row>
-      );
+    const stage = task.progress?.stage || 'pending';
+    const phaseInfo = getPhaseInfo(stage);
+    const percentage = task.progress?.percentage || 0;
+    
+    // 根据状态确定进度
+    let uploadPercent = 0;
+    let vectorPercent = 0;
+    
+    if (task.status === 'completed') {
+      uploadPercent = 100;
+      vectorPercent = 100;
+    } else if (task.status === 'processing') {
+      if (phaseInfo.phase === 'upload') {
+        uploadPercent = percentage;
+        vectorPercent = 0;
+      } else if (phaseInfo.phase === 'vector') {
+        uploadPercent = 100;
+        vectorPercent = percentage;
+      }
     }
     
-    // pending/queued 状态
     return (
-      <Row gutter={16}>
-        <Col span={12}>
-          <div style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 12, color: '#666' }}>文档处理</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 280 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11, color: '#666' }}>文档处理</span>
+            {task.status === 'processing' && phaseInfo.phase === 'upload' && (
+              <SyncOutlined spin style={{ fontSize: 10, color: '#1890ff' }} />
+            )}
           </div>
-          <Progress percent={0} size="small" />
-        </Col>
-        <Col span={12}>
-          <div style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 12, color: '#666' }}>向量化</span>
+          <Progress 
+            percent={uploadPercent} 
+            size="small"
+            status={uploadPercent === 100 ? 'success' : (task.status === 'processing' ? 'active' : 'normal')}
+            showInfo={false}
+            style={{ margin: 0 }}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11, color: '#666' }}>向量化</span>
+            {task.status === 'processing' && phaseInfo.phase === 'vector' && (
+              <SyncOutlined spin style={{ fontSize: 10, color: '#fa8c16' }} />
+            )}
           </div>
-          <Progress percent={0} size="small" />
-        </Col>
-      </Row>
+          <Progress 
+            percent={vectorPercent}
+            size="small"
+            status={vectorPercent === 100 ? 'success' : (task.status === 'processing' ? 'active' : 'normal')}
+            strokeColor={task.status === 'processing' && phaseInfo.phase === 'vector' ? '#fa8c16' : undefined}
+            showInfo={false}
+            style={{ margin: 0 }}
+          />
+        </div>
+      </div>
     );
   };
 
@@ -401,49 +379,56 @@ const DocumentUpload: React.FC = () => {
               renderItem={(task) => (
                 <List.Item
                   key={task.task_id}
-                  style={{ alignItems: 'flex-start' }}
-                  actions={[
-                    task.status === 'completed' && task.result && (
-                      <Tooltip title="查看详情" key="view">
-                        <Button 
-                          type="link" 
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => {
-                            Modal.info({
-                              title: '处理结果',
-                              content: (
-                                <div>
-                                  <p>文档ID: {task.result.document_id}</p>
-                                  <p>分块数: {task.result.chunks_count}</p>
-                                  <p>向量化: {task.result.vector_stored ? '成功' : '失败'}</p>
-                                </div>
-                              )
-                            });
-                          }}
-                        />
-                      </Tooltip>
-                    )
-                  ]}
+                  style={{ padding: '12px 0' }}
                 >
-                  <List.Item.Meta
-                    avatar={
-                      <div style={{ width: 40, textAlign: 'center' }}>
-                        {task.status === 'processing' ? (
-                          <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#1890ff' }} spin />} />
-                        ) : (
-                          <FileTextOutlined style={{ fontSize: 24, color: '#1890ff' }} />
-                        )}
-                      </div>
-                    }
-                    title={
+                  <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 12 }}>
+                    {/* 图标 */}
+                    <div style={{ width: 40, textAlign: 'center', flexShrink: 0 }}>
+                      {task.status === 'processing' ? (
+                        <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#1890ff' }} spin />} />
+                      ) : (
+                        <FileTextOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+                      )}
+                    </div>
+                    
+                    {/* 文件名和状态 */}
+                    <div style={{ flexShrink: 0, minWidth: 200 }}>
                       <Space>
-                        <span>{task.filename}</span>
+                        <span style={{ fontWeight: 500 }}>{task.filename}</span>
                         {getStatusTag(task.status)}
                       </Space>
-                    }
-                    description={renderProgress(task)}
-                  />
+                    </div>
+                    
+                    {/* 进度条 - 占据剩余空间 */}
+                    <div style={{ flex: 1, marginLeft: 16 }}>
+                      {renderCompactProgress(task)}
+                    </div>
+                    
+                    {/* 查看详情按钮 */}
+                    <div style={{ flexShrink: 0 }}>
+                      {task.status === 'completed' && task.result && (
+                        <Tooltip title="查看详情">
+                          <Button 
+                            type="link" 
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => {
+                              Modal.info({
+                                title: '处理结果',
+                                content: (
+                                  <div>
+                                    <p>文档ID: {task.result.document_id}</p>
+                                    <p>分块数: {task.result.chunks_count}</p>
+                                    <p>向量化: {task.result.vector_stored ? '成功' : '失败'}</p>
+                                  </div>
+                                )
+                              });
+                            }}
+                          />
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
                 </List.Item>
               )}
             />
