@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Input, Button, List, Card, Tag, AutoComplete } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress } from 'antd';
+import { SearchOutlined, LoadingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -15,6 +15,7 @@ const SearchInterface: React.FC = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
+  const [searched, setSearched] = useState(false);
   const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
   const { user, token } = useAuth();
 
@@ -67,6 +68,7 @@ const SearchInterface: React.FC = () => {
     if (!value.trim()) return;
     
     setLoading(true);
+    setSearched(false);
     setQuery(value);
     try {
       const headers: any = {};
@@ -79,6 +81,7 @@ const SearchInterface: React.FC = () => {
         headers
       });
       setSearchResults(response.data.results || []);
+      setSearched(true);
     } catch (error) {
       console.error('搜索失败:', error);
     } finally {
@@ -109,7 +112,25 @@ const SearchInterface: React.FC = () => {
         </AutoComplete>
       </Card>
       
-      {searchResults.length > 0 && (
+      {/* 搜索中进度条 */}
+      {loading && (
+        <Card style={{ marginTop: 16 }}>
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
+            <div style={{ marginTop: 16, color: '#666' }}>
+              正在搜索...
+            </div>
+            <Progress 
+              percent={100} 
+              status="active" 
+              showInfo={false}
+              style={{ maxWidth: 300, margin: '16px auto 0' }}
+            />
+          </div>
+        </Card>
+      )}
+      
+      {!loading && searchResults.length > 0 && (
         <Card title={`搜索结果 (${searchResults.length})`}>
           <List
             itemLayout="vertical"
@@ -138,8 +159,8 @@ const SearchInterface: React.FC = () => {
         </Card>
       )}
       
-      {!loading && searchResults.length === 0 && query && (
-        <Card>
+      {!loading && searched && searchResults.length === 0 && (
+        <Card style={{ marginTop: 16 }}>
           <p style={{ textAlign: 'center', color: '#999' }}>未找到相关结果</p>
         </Card>
       )}
