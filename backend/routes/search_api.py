@@ -13,6 +13,7 @@ from services.embedding_encoder import EmbeddingEncoder
 from services.milvus_integration import MilvusClient
 from services.database import db
 from services.reranker import get_reranker, get_query_enhancer, QueryEnhancer
+from services.llm_service import get_rag_generator
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ async def search_documents(
     use_rerank: bool = Query(True, description="是否使用重排序"),
     use_query_enhance: bool = Query(False, description="是否使用查询增强"),
     recall_size: int = Query(15, description="召回数量（重排序前）"),
+    generate_answer: bool = Query(False, description="是否生成AI回答"),
     authorization: Optional[str] = Header(None)
 ):
     """
@@ -241,6 +243,25 @@ async def search_documents(
             # 按分数排序
             results.sort(key=lambda x: x["score"], reverse=True)
             
+            # 生成AI回答
+            ai_answer = None
+            if generate_answer and results:
+                try:
+                    rag = get_rag_generator()
+                    # 准备上下文
+                    contexts = []
+                    for r in results[:5]:
+                        contexts.append({
+                            "filename": r.get("filename", ""),
+                            "content": r.get("matches", [""])[0] if r.get("matches") else "",
+                            "score": r.get("score", 0)
+                        })
+                    ai_answer = await rag.generate_answer(actual_query, contexts, max_contexts=5)
+                    logger.info(f"AI回答生成完成")
+                except Exception as e:
+                    logger.warning(f"AI回答生成失败: {e}")
+                    ai_answer = None
+            
             logger.info(f"搜索完成: query={actual_query}, candidates={len(all_candidates)}, results={len(results)}")
             
             return {
@@ -251,7 +272,8 @@ async def search_documents(
                 "search_type": search_type,
                 "enhanced": use_rerank or use_query_enhance,
                 "recall_count": len(all_candidates),
-                "query_variations": queries if use_query_enhance else None
+                "query_variations": queries if use_query_enhance else None,
+                "ai_answer": ai_answer
             }
             
         except Exception as e:

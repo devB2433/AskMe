@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider } from 'antd';
+import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider, Alert } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -12,6 +12,10 @@ const Settings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchPreset, setSearchPreset] = useState<string>('normal');
+  const [llmConfig, setLlmConfig] = useState<any>({});
+  const [llmPresets, setLlmPresets] = useState<any[]>([]);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmTestResult, setLlmTestResult] = useState<string>('');
 
   // 搜索精度预设配置
   const SEARCH_PRESETS = {
@@ -45,6 +49,15 @@ const Settings: React.FC = () => {
       const savedPreset = localStorage.getItem('searchPreset') || 'normal';
       setSearchPreset(savedPreset);
       
+      // 加载LLM配置
+      try {
+        const llmRes = await axios.get('http://localhost:8001/api/llm/config');
+        setLlmConfig(llmRes.data);
+        setLlmPresets(llmRes.data.available_presets || []);
+      } catch (e) {
+        console.warn('加载LLM配置失败', e);
+      }
+      
       setLoading(false);
     };
     fetchConfig();
@@ -55,6 +68,32 @@ const Settings: React.FC = () => {
     setSearchPreset(value);
     localStorage.setItem('searchPreset', value);
     message.success(`已切换为: ${SEARCH_PRESETS[value as keyof typeof SEARCH_PRESETS].name}`);
+  };
+
+  // 应用LLM预设
+  const handleLlmPresetChange = async (presetKey: string) => {
+    try {
+      await axios.post(`http://localhost:8001/api/llm/config/preset/${presetKey}`);
+      const res = await axios.get('http://localhost:8001/api/llm/config');
+      setLlmConfig(res.data);
+      message.success('已切换大模型配置');
+    } catch (e) {
+      message.error('切换失败');
+    }
+  };
+
+  // 测试LLM连接
+  const testLlmConnection = async () => {
+    setLlmLoading(true);
+    setLlmTestResult('');
+    try {
+      const res = await axios.get('http://localhost:8001/api/llm/test');
+      setLlmTestResult(res.data.status === 'success' ? '连接成功' : `失败: ${res.data.message}`);
+    } catch (e: any) {
+      setLlmTestResult(`失败: ${e.message}`);
+    } finally {
+      setLlmLoading(false);
+    }
   };
 
   const handleSave = async (values: any) => {
@@ -139,6 +178,45 @@ const Settings: React.FC = () => {
             {searchPreset === 'precise' && '开启重排序和查询增强，召回30个候选。准确率最高，速度较慢。'}
           </div>
         </div>
+
+        <Divider />
+
+        <div style={{ fontWeight: 500, marginBottom: 12 }}>大模型配置</div>
+        
+        <Form.Item label="选择模型预设" extra="选择预设可快速切换大模型配置">
+          <Select 
+            value={llmConfig.provider + '_' + llmConfig.model} 
+            onChange={handleLlmPresetChange}
+            style={{ width: '100%' }}
+          >
+            {llmPresets.map((p: any) => (
+              <Option key={p.key} value={p.key}>{p.name}</Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 6, marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>
+            <span style={{ color: '#666' }}>Provider:</span> {llmConfig.provider}
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <span style={{ color: '#666' }}>Model:</span> {llmConfig.model}
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <span style={{ color: '#666' }}>API URL:</span> {llmConfig.api_url}
+          </div>
+        </div>
+
+        <Form.Item>
+          <Button onClick={testLlmConnection} loading={llmLoading}>
+            测试连接
+          </Button>
+          {llmTestResult && (
+            <span style={{ marginLeft: 12, color: llmTestResult.includes('成功') ? '#52c41a' : '#ff4d4f' }}>
+              {llmTestResult}
+            </span>
+          )}
+        </Form.Item>
 
         <Form.Item>
           <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress } from 'antd';
+import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress, Checkbox, Alert, Divider } from 'antd';
 import { SearchOutlined, LoadingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,6 +25,9 @@ const SearchInterface: React.FC = () => {
     useQueryEnhance: false,
     recallSize: 15
   });
+  const [generateAnswer, setGenerateAnswer] = useState(false);
+  const [aiAnswer, setAiAnswer] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   
   // 加载搜索配置
   useEffect(() => {
@@ -108,11 +111,13 @@ const SearchInterface: React.FC = () => {
           limit: 10,
           use_rerank: searchConfig.useRerank,
           use_query_enhance: searchConfig.useQueryEnhance,
-          recall_size: searchConfig.recallSize
+          recall_size: searchConfig.recallSize,
+          generate_answer: generateAnswer
         },
         headers
       });
       setSearchResults(response.data.results || []);
+      setAiAnswer(response.data.ai_answer || null);
       setSearched(true);
     } catch (error) {
       console.error('搜索失败:', error);
@@ -142,8 +147,14 @@ const SearchInterface: React.FC = () => {
             loading={loading}
           />
         </AutoComplete>
-        <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-          搜索精度可在「系统设置」中调整
+        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: '#999' }}>搜索精度可在「系统设置」中调整</span>
+          <Checkbox 
+            checked={generateAnswer} 
+            onChange={(e) => setGenerateAnswer(e.target.checked)}
+          >
+            生成AI回答
+          </Checkbox>
         </div>
       </Card>
       
@@ -165,8 +176,19 @@ const SearchInterface: React.FC = () => {
         </Card>
       )}
       
+      {!loading && aiAnswer && (
+        <Card style={{ marginTop: 16 }}>
+          <Alert 
+            message="AI回答" 
+            description={<div style={{ whiteSpace: 'pre-wrap' }}>{aiAnswer}</div>}
+            type="info"
+            showIcon
+          />
+        </Card>
+      )}
+      
       {!loading && searchResults.length > 0 && (
-        <Card title={`搜索结果 (${searchResults.length})`}>
+        <Card title={`相关文档 (${searchResults.length})`}>
           <List
             itemLayout="vertical"
             dataSource={searchResults}

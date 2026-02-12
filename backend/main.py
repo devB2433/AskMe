@@ -11,6 +11,7 @@ from routes.document_api import router as document_router
 from routes.search_api import router as search_router
 from routes.user_api import router as user_router
 from routes.websocket_api import router as websocket_router
+from routes.llm_api import router as llm_router
 from services.embedding_encoder import EmbeddingEncoder
 from services.milvus_integration import MilvusClient
 from services.state_manager import StateManager, StateType, StateStatus
@@ -211,6 +212,7 @@ app.include_router(document_router)
 app.include_router(search_router)
 app.include_router(user_router)
 app.include_router(websocket_router)
+app.include_router(llm_router)
 
 @app.get("/", summary="API根路径")
 async def root():
