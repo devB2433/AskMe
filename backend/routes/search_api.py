@@ -73,9 +73,20 @@ async def search_documents(
             # 解析 /部门名 关键词 格式
             parts = q.split(None, 1)
             if len(parts) >= 1:
-                actual_team = parts[0][1:]  # 去掉开头的 /
+                parsed_team = parts[0][1:]  # 去掉开头的 /
                 actual_query = parts[1] if len(parts) > 1 else ""
-                logger.info(f"解析搜索语法: team={actual_team}, query={actual_query}")
+                
+                # 尝试匹配完整部门名称（支持"/研发"匹配"研发部"）
+                from services.user_service import user_service
+                departments = user_service.get_departments()
+                matched_dept = None
+                for dept in departments:
+                    if dept == parsed_team or parsed_team in dept:
+                        matched_dept = dept
+                        break
+                
+                actual_team = matched_dept or parsed_team
+                logger.info(f"解析搜索语法: parsed={parsed_team}, matched={actual_team}, query={actual_query}")
         
         # 获取用户信息
         user_department = None
