@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 class EmbeddingEncoder:
     """文本嵌入编码器"""
     
-    # 支持中文的嵌入模型
-    DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"  # 中文模型，512维，效果更好
+    # 支持中文的嵌入模型 - 使用large模型获得更好的语义理解
+    DEFAULT_MODEL = "BAAI/bge-large-zh-v1.5"  # 中文模型，1024维，效果更好
     
     def __init__(self, model_name: str = None):
         """

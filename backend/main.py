@@ -41,11 +41,11 @@ def rebuild_vector_index():
         milvus = MilvusClient()
         state_mgr = StateManager()
         
-        # 创建集合
+        # 创建集合 - 使用encoder的维度
         collection_name = "askme_documents"
         collection = milvus.create_collection(
             collection_name=collection_name,
-            dimension=512,
+            dimension=encoder.model.get_sentence_embedding_dimension(),
             auto_id=True,
             description="AskMe文档向量存储"
         )
@@ -242,9 +242,12 @@ async def api_info():
 
 # 系统配置存储
 SYSTEM_CONFIG = {
-    "embedding_model": "BAAI/bge-small-zh-v1.5",
+    "embedding_model": "BAAI/bge-large-zh-v1.5",
     "chunk_size": 800,
+    "chunk_overlap": 200,
     "top_k": 10,
+    "search_ef": 256,
+    "content_store_length": 1000,
     "enable_ocr": True
 }
 

@@ -216,7 +216,7 @@ async def upload_document(
                     "document_id": document_id,
                     "team_id": actual_team_id,
                     "chunk_id": f"{document_id}_{i}",
-                    "content": c.get("content", "")[:500],
+                    "content": c.get("content", "")[:1000],
                     "metadata": {"chunk_index": i}
                 } for i, c in enumerate(chunks)]
             )
@@ -382,7 +382,7 @@ async def batch_upload_documents(
                         "document_id": task_data["document_id"],
                         "team_id": task_data["team_id"],
                         "chunk_id": f"{task_data['document_id']}_{i}",
-                        "content": c.get("content", "")[:500],
+                        "content": c.get("content", "")[:1000],
                         "metadata": {"chunk_index": i},
                         "created_at": int(time.time())
                     } for i, c in enumerate(chunks)]

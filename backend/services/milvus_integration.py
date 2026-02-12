@@ -54,7 +54,7 @@ class MilvusClient:
         except Exception as e:
             logger.error(f"断开连接失败: {e}")
     
-    def create_collection(self, collection_name: str, dimension: int = 384, 
+    def create_collection(self, collection_name: str, dimension: int = 1024, 
                          auto_id: bool = False, description: str = "") -> Collection:
         """
         创建集合
@@ -256,7 +256,7 @@ class MilvusClient:
         try:
             search_params = {
                 "metric_type": "COSINE",
-                "params": {"ef": 128}  # 提高搜索精度
+                "params": {"ef": 256}  # 提高搜索精度
             }
             
             results = collection.search(
@@ -407,7 +407,7 @@ class VectorStorageManager:
     def _ensure_default_collection(self):
         """确保默认集合存在"""
         try:
-            self.milvus_client.create_collection(self.default_collection, dimension=384)
+            self.milvus_client.create_collection(self.default_collection, dimension=1024)
         except Exception as e:
             logger.info(f"默认集合已存在或创建失败: {e}")
     
