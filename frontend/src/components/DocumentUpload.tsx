@@ -398,16 +398,18 @@ const DocumentUpload: React.FC = () => {
                   key={task.task_id}
                   style={{ padding: '12px 0' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 12 }}>
-                    {/* 文件名和状态 - 固定宽度 */}
-                    <div style={{ width: 350, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <Space>
-                        <span style={{ fontWeight: 500 }}>{task.filename}</span>
-                        {getStatusTag(task.status)}
-                      </Space>
+                  <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 16 }}>
+                    {/* 文件名 - 固定宽度，超长截断 */}
+                    <div style={{ width: 300, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 500 }}>{task.filename}</span>
                     </div>
                     
-                    {/* 进度条 - 固定位置 */}
+                    {/* 状态标签 - 固定宽度，不被遮挡 */}
+                    <div style={{ width: 70, flexShrink: 0 }}>
+                      {getStatusTag(task.status)}
+                    </div>
+                    
+                    {/* 进度条 */}
                     <div style={{ flexShrink: 0 }}>
                       {renderCompactProgress(task)}
                     </div>
