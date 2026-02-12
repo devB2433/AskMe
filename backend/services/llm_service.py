@@ -170,6 +170,72 @@ class QwenProvider(OpenAICompatibleProvider):
         super().__init__(config)
 
 
+class GLMProvider(BaseLLMProvider):
+    """智谱GLM API提供者"""
+    
+    async def generate(self, prompt: str, system_prompt: str = "") -> str:
+        """生成回答"""
+        url = f"{self.config.api_url}/chat/completions"
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.config.api_key}"
+        }
+        
+        payload = {
+            "model": self.config.model,
+            "messages": messages,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "stream": False
+        }
+        
+        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+    
+    async def generate_stream(self, prompt: str, system_prompt: str = "") -> AsyncGenerator[str, None]:
+        """流式生成回答"""
+        url = f"{self.config.api_url}/chat/completions"
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.config.api_key}"
+        }
+        
+        payload = {
+            "model": self.config.model,
+            "messages": messages,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "stream": True
+        }
+        
+        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
+                async for line in response.aiter_lines():
+                    if line.startswith("data: ") and line != "data: [DONE]":
+                        try:
+                            data = json.loads(line[6:])
+                            delta = data["choices"][0].get("delta", {})
+                            if "content" in delta:
+                                yield delta["content"]
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            continue
+
+
 class LLMService:
     """大语言模型服务"""
     
@@ -198,6 +264,16 @@ class LLMService:
             model="qwen-turbo",
             api_url="https://dashscope.aliyuncs.com/compatible-mode"
         ),
+        "glm_4": LLMConfig(
+            provider="glm",
+            model="glm-4",
+            api_url="https://open.bigmodel.cn/api/paas/v4"
+        ),
+        "glm_4_flash": LLMConfig(
+            provider="glm",
+            model="glm-4-flash",
+            api_url="https://open.bigmodel.cn/api/paas/v4"
+        ),
         "deepseek": LLMConfig(
             provider="openai",
             model="deepseek-chat",
@@ -217,6 +293,8 @@ class LLMService:
                 self._provider = OllamaProvider(self.config)
             elif provider == "qwen":
                 self._provider = QwenProvider(self.config)
+            elif provider == "glm":
+                self._provider = GLMProvider(self.config)
             else:
                 self._provider = OpenAICompatibleProvider(self.config)
         return self._provider

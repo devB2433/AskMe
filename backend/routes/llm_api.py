@@ -177,6 +177,8 @@ def _get_preset_name(preset_key: str) -> str:
         "ollama_llama": "Ollama - Llama3.1 8B (本地)",
         "qwen_plus": "通义千问 Plus (云端)",
         "qwen_turbo": "通义千问 Turbo (云端)",
+        "glm_4": "智谱GLM-4 (云端)",
+        "glm_4_flash": "智谱GLM-4-Flash (云端)",
         "deepseek": "DeepSeek Chat (云端)"
     }
     return names.get(preset_key, preset_key)
