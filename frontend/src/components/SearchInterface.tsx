@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress, Checkbox, Alert, Divider } from 'antd';
 import { SearchOutlined, LoadingOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -12,6 +13,7 @@ interface Department {
 }
 
 const SearchInterface: React.FC = () => {
+  const { t } = useTranslation();
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
@@ -48,63 +50,14 @@ const SearchInterface: React.FC = () => {
     return () => window.removeEventListener('storage', loadConfig);
   }, []);
 
-  // 处理输入变化，检测部门提示
-  const handleInputChange = (value: string) => {
-    setQuery(value);
-    
-    // 检测是否输入了 "/"
-    if (value.startsWith('/')) {
-      const afterSlash = value.slice(1);
-      // 如果 / 后面有内容，提示匹配的部门
-      if (afterSlash.length > 0 && !afterSlash.includes(' ')) {
-        fetchDepartmentSuggestions(afterSlash);
-      } else if (!afterSlash.includes(' ')) {
-        // 刚输入 /，显示用户部门
-        fetchDepartmentSuggestions('');
-      } else {
-        setOptions([]);
-      }
-    } else {
-      setOptions([]);
-    }
-  };
-
-  // 获取部门提示
-  const fetchDepartmentSuggestions = async (prefix: string) => {
-    try {
-      const response = await axios.get('http://localhost:8001/api/users/departments/suggest', {
-        params: { q: prefix }
-      });
-      const departments: Department[] = response.data.departments || [];
-      
-      setOptions(departments.map(dept => ({
-        value: `/${dept.name} `,
-        label: dept.name
-      })));
-    } catch (error) {
-      console.error('获取部门提示失败:', error);
-      setOptions([]);
-    }
-  };
-
-  // 选择部门后
-  const handleSelect = (value: string) => {
-    setQuery(value);
-    setOptions([]);
-  };
-
   const handleSearch = async (value: string) => {
     if (!value.trim()) return;
     
     setLoading(true);
     setSearched(false);
-    setQuery(value);
+    setAiAnswer(null);
+    
     try {
-      const headers: any = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      
       const response = await axios.get(API_BASE, {
         params: { 
           q: value, 
@@ -114,72 +67,93 @@ const SearchInterface: React.FC = () => {
           recall_size: searchConfig.recallSize,
           generate_answer: generateAnswer
         },
-        headers
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
+      
       setSearchResults(response.data.results || []);
       setAiAnswer(response.data.ai_answer || null);
       setSearched(true);
     } catch (error) {
-      console.error('搜索失败:', error);
+      console.error('Search failed:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  // 部门搜索处理
+  const handleDepartmentSearch = async (value: string) => {
+    if (!value.startsWith('/')) {
+      setOptions([]);
+      return;
+    }
+    
+    const deptQuery = value.substring(1).toLowerCase();
+    if (!deptQuery) {
+      setOptions([]);
+      return;
+    }
+    
+    try {
+      const response = await axios.get(`http://localhost:8001/api/teams/suggest?q=${deptQuery}`);
+      const departments = response.data.teams || [];
+      setOptions(departments.map((dept: string) => ({
+        value: `/${dept} `,
+        label: dept
+      })));
+    } catch (error) {
+      setOptions([]);
+    }
+  };
+
+  const handleInputChange = (value: string) => {
+    setQuery(value);
+    handleDepartmentSearch(value);
+  };
+
   return (
-    <div>
-      <Card title="知识检索" style={{ marginBottom: 24 }}>
-        <div style={{ marginBottom: 8, color: '#666', fontSize: '13px' }}>
-          提示：输入 <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>/部门名 关键词</code> 可在指定部门知识库中搜索
-        </div>
-        <AutoComplete
-          value={query}
-          options={options}
-          onSearch={handleInputChange}
-          onSelect={handleSelect}
-          style={{ width: '100%' }}
+    <Card title={t('search.title')}>
+      <AutoComplete
+        style={{ width: '100%' }}
+        options={options}
+        value={query}
+        onSearch={handleInputChange}
+        onSelect={(value) => {
+          setQuery(value);
+        }}
+      >
+        <Input.Search
+          placeholder={t('search.placeholder')}
+          enterButton={t('common.search')}
+          size="large"
+          loading={loading}
+          onSearch={handleSearch}
+        />
+      </AutoComplete>
+      
+      <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+        {t('search.hint')}
+      </div>
+      
+      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, color: '#999' }}>{t('search.searchPrecision')}</span>
+        <Checkbox 
+          checked={generateAnswer} 
+          onChange={(e) => setGenerateAnswer(e.target.checked)}
         >
-          <Input.Search
-            placeholder="输入关键词搜索... 或输入 / 选择部门"
-            enterButton={<Button type="primary" icon={<SearchOutlined />}>搜索</Button>}
-            size="large"
-            onSearch={handleSearch}
-            loading={loading}
-          />
-        </AutoComplete>
-        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: '#999' }}>搜索精度可在「系统设置」中调整</span>
-          <Checkbox 
-            checked={generateAnswer} 
-            onChange={(e) => setGenerateAnswer(e.target.checked)}
-          >
-            生成AI回答
-          </Checkbox>
-        </div>
-      </Card>
-      
-      {/* 搜索中进度条 */}
+          {t('search.generateAIAnswer')}
+        </Checkbox>
+      </div>
+
       {loading && (
-        <Card style={{ marginTop: 16 }}>
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
-            <div style={{ marginTop: 16, color: '#666' }}>
-              正在搜索...
-            </div>
-            <Progress 
-              percent={100} 
-              status="active" 
-              showInfo={false}
-              style={{ maxWidth: 300, margin: '16px auto 0' }}
-            />
-          </div>
-        </Card>
+        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+          <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
+        </div>
       )}
-      
+
       {!loading && aiAnswer && (
         <Card style={{ marginTop: 16 }}>
           <Alert 
-            message="AI回答" 
+            message={t('search.aiAnswer')} 
             description={<div style={{ whiteSpace: 'pre-wrap' }}>{aiAnswer}</div>}
             type="info"
             showIcon
@@ -188,25 +162,28 @@ const SearchInterface: React.FC = () => {
       )}
       
       {!loading && searchResults.length > 0 && (
-        <Card title={`相关文档 (${searchResults.length})`}>
+        <Card title={`${t('search.relatedDocuments')} (${searchResults.length})`} style={{ marginTop: 16 }}>
           <List
-            itemLayout="vertical"
             dataSource={searchResults}
-            renderItem={(item) => (
+            renderItem={(item: any) => (
               <List.Item>
                 <List.Item.Meta
-                  title={item.filename}
+                  title={
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{item.filename}</span>
+                      <Tag color="blue">{t('search.score')}: {(item.score * 100).toFixed(1)}%</Tag>
+                    </div>
+                  }
                   description={
                     <div>
-                      {item.matches && item.matches.map((match: string, idx: number) => (
-                        <p key={idx} style={{ marginBottom: 8, color: '#333' }}>
-                          {match}
-                        </p>
-                      ))}
-                      <div style={{ marginTop: 8 }}>
-                        {item.team_id && <Tag color="purple">{item.team_id}</Tag>}
-                        <Tag color="blue">相关度: {(item.score * 100).toFixed(1)}%</Tag>
-                      </div>
+                      {item.matches && item.matches[0] && (
+                        <div style={{ color: '#666', marginTop: 4 }}>
+                          {item.matches[0].substring(0, 200)}...
+                        </div>
+                      )}
+                      {item.team_id && (
+                        <Tag style={{ marginTop: 8 }}>{item.team_id}</Tag>
+                      )}
                     </div>
                   }
                 />
@@ -215,13 +192,13 @@ const SearchInterface: React.FC = () => {
           />
         </Card>
       )}
-      
+
       {!loading && searched && searchResults.length === 0 && (
-        <Card style={{ marginTop: 16 }}>
-          <p style={{ textAlign: 'center', color: '#999' }}>未找到相关结果</p>
-        </Card>
+        <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+          {t('search.noResults')}
+        </div>
       )}
-    </div>
+    </Card>
   );
 };
 

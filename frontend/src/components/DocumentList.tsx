@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Button, Tag, Popconfirm, message, Spin } from 'antd';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 
 const API_BASE = 'http://localhost:8001/api/documents';
 
 const DocumentList: React.FC = () => {
+  const { t } = useTranslation();
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -16,7 +18,7 @@ const DocumentList: React.FC = () => {
       setDocuments(response.data.documents || []);
     } catch (error) {
       console.error('获取文档列表失败:', error);
-      message.error('获取文档列表失败');
+      message.error(t('documents.getFailed'));
     } finally {
       setLoading(false);
     }
@@ -29,57 +31,57 @@ const DocumentList: React.FC = () => {
   const handleDelete = async (id: string) => {
     try {
       await axios.delete(`${API_BASE}/${id}`);
-      message.success('文档删除成功');
+      message.success(t('documents.deleteSuccess'));
       fetchDocuments();
     } catch (error) {
-      message.error('删除失败');
+      message.error(t('common.error'));
     }
   };
 
   const handleReprocess = async (id: string) => {
     try {
       await axios.post(`${API_BASE}/${id}/reprocess`);
-      message.info('开始重新处理文档');
+      message.info(t('documents.reprocessStart'));
       fetchDocuments();
     } catch (error) {
-      message.error('重新处理失败');
+      message.error(t('common.error'));
     }
   };
 
   const columns = [
     {
-      title: '文件名',
+      title: t('documents.filename'),
       dataIndex: 'filename',
       key: 'filename',
     },
     {
-      title: '部门',
+      title: t('documents.department'),
       dataIndex: 'team_id',
       key: 'team_id',
       render: (team_id: string) => team_id || '-',
     },
     {
-      title: '状态',
+      title: t('documents.status'),
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => (
         <Tag color={status === 'completed' ? 'green' : 'orange'}>
-          {status === 'completed' ? '已完成' : '处理中'}
+          {status === 'completed' ? t('documents.completed') : t('documents.processing')}
         </Tag>
       ),
     },
     {
-      title: '分块数',
+      title: t('documents.chunks'),
       dataIndex: 'chunks_count',
       key: 'chunks_count',
     },
     {
-      title: '创建时间',
+      title: t('documents.createdAt'),
       dataIndex: 'created_at',
       key: 'created_at',
     },
     {
-      title: '操作',
+      title: t('documents.actions'),
       key: 'action',
       render: (_: any, record: any) => (
         <div>
@@ -88,15 +90,15 @@ const DocumentList: React.FC = () => {
             size="small" 
             style={{ marginRight: 8 }}
             onClick={() => handleReprocess(record.document_id)}
-            title="重新处理"
+            title={t('documents.reprocess')}
           />
           <Popconfirm
-            title="确定要删除这个文档吗？"
+            title={t('documents.deleteConfirm')}
             onConfirm={() => handleDelete(record.document_id)}
-            okText="确定"
-            cancelText="取消"
+            okText={t('common.confirm')}
+            cancelText={t('common.cancel')}
           >
-            <Button icon={<DeleteOutlined />} size="small" danger title="删除" />
+            <Button icon={<DeleteOutlined />} size="small" danger title={t('documents.delete')} />
           </Popconfirm>
         </div>
       ),
@@ -104,7 +106,7 @@ const DocumentList: React.FC = () => {
   ];
 
   return (
-    <Card title="文档管理">
+    <Card title={t('documents.title')}>
       <Table 
         columns={columns} 
         dataSource={documents} 

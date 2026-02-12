@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider, InputNumber } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 
 const { Option } = Select;
@@ -13,6 +14,7 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
+  const { t, i18n } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,11 +35,14 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmTestResult, setLlmTestResult] = useState<string>('');
 
+  // 语言设置
+  const [language, setLanguage] = useState<string>(i18n.language || 'zh-CN');
+
   // 搜索精度预设配置
-  const SEARCH_PRESETS = {
-    fast: { name: '低精度高速度', useRerank: false, useQueryEnhance: false, recallSize: 10 },
-    normal: { name: '正常', useRerank: true, useQueryEnhance: false, recallSize: 15 },
-    precise: { name: '高精度低速度', useRerank: true, useQueryEnhance: true, recallSize: 30 }
+  const SEARCH_PRESETS: Record<string, { name: string }> = {
+    fast: { name: t('settings.search.fast') },
+    normal: { name: t('settings.search.normal') },
+    precise: { name: t('settings.search.precise') }
   };
 
   // 加载系统配置
@@ -90,9 +95,9 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
     setSaving(true);
     try {
       await axios.post(`${API_BASE}/config`, values);
-      message.success('嵌入模型配置已保存');
+      message.success(t('settings.embedding.saveSuccess'));
     } catch (error) {
-      message.success('配置已保存到本地');
+      message.success(t('common.success'));
     } finally {
       setSaving(false);
     }
@@ -102,7 +107,7 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
   const handlePresetChange = (value: string) => {
     setSearchPreset(value);
     localStorage.setItem('searchPreset', value);
-    message.success(`已切换为: ${SEARCH_PRESETS[value as keyof typeof SEARCH_PRESETS].name}`);
+    message.success(`${t('settings.search.currentMode')}: ${SEARCH_PRESETS[value]?.name || value}`);
   };
 
   // 保存LLM配置
@@ -116,9 +121,9 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
         max_tokens: llmConfig.max_tokens,
         temperature: llmConfig.temperature
       });
-      message.success('大模型配置已保存');
+      message.success(t('settings.llm.saveSuccess'));
     } catch (e) {
-      message.error('保存失败');
+      message.error(t('settings.llm.saveFailed'));
     }
   };
 
@@ -128,27 +133,52 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
     setLlmTestResult('');
     try {
       const res = await axios.get('http://localhost:8001/api/llm/test');
-      setLlmTestResult(res.data.status === 'success' ? '连接成功' : `失败: ${res.data.message}`);
+      setLlmTestResult(res.data.status === 'success' ? t('settings.llm.connectionSuccess') : `${t('settings.llm.connectionFailed')}: ${res.data.message}`);
     } catch (e: any) {
-      setLlmTestResult(`失败: ${e.message}`);
+      setLlmTestResult(`${t('settings.llm.connectionFailed')}: ${e.message}`);
     } finally {
       setLlmLoading(false);
     }
   };
 
+  // 切换语言
+  const handleLanguageChange = (lang: string) => {
+    setLanguage(lang);
+    i18n.changeLanguage(lang);
+    localStorage.setItem('language', lang);
+    message.success(t('settings.language.saveSuccess'));
+  };
+
   if (loading) {
     return (
-      <Card style={{ textAlign: 'center' }}>
-        <Spin tip="加载配置中..." />
-      </Card>
+      <div style={{ textAlign: 'center', padding: 50 }}>
+        <Spin tip={t('common.loading')} />
+      </div>
     );
   }
+
+  // 语言设置页面
+  const LanguageSettings = () => (
+    <div>
+      <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+        {t('settings.language.title')}
+      </div>
+      <Form layout="vertical">
+        <Form.Item label={t('settings.language.label')} extra={t('settings.language.hint')}>
+          <Radio.Group value={language} onChange={(e) => handleLanguageChange(e.target.value)}>
+            <Radio.Button value="zh-CN">{t('settings.language.zhCN')}</Radio.Button>
+            <Radio.Button value="en-US">{t('settings.language.enUS')}</Radio.Button>
+          </Radio.Group>
+        </Form.Item>
+      </Form>
+    </div>
+  );
 
   // 嵌入模型配置页面
   const EmbeddingSettings = () => (
     <div>
       <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
-        嵌入模型配置
+        {t('settings.embedding.title')}
       </div>
       <Form
         form={form}
@@ -156,45 +186,45 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
         onFinish={handleSaveEmbedding}
       >
         <Form.Item
-          label="嵌入模型"
+          label={t('settings.embedding.model')}
           name="embedding_model"
-          extra="中文推荐使用 BAAI/bge-small-zh-v1.5"
+          extra={t('settings.embedding.modelHint')}
         >
           <Select>
-            <Option value="BAAI/bge-small-zh-v1.5">BAAI/bge-small-zh-v1.5 (中文推荐)</Option>
-            <Option value="sentence-transformers/all-MiniLM-L6-v2">all-MiniLM-L6-v2 (英文)</Option>
-            <Option value="BAAI/bge-base-zh-v1.5">BAAI/bge-base-zh-v1.5 (更大更准)</Option>
+            <Option value="BAAI/bge-small-zh-v1.5">BAAI/bge-small-zh-v1.5 ({t('settings.embedding.modelZh')})</Option>
+            <Option value="sentence-transformers/all-MiniLM-L6-v2">all-MiniLM-L6-v2 ({t('settings.embedding.modelEn')})</Option>
+            <Option value="BAAI/bge-base-zh-v1.5">BAAI/bge-base-zh-v1.5 ({t('settings.embedding.modelLarge')})</Option>
           </Select>
         </Form.Item>
 
         <Form.Item
-          label="分块大小"
+          label={t('settings.embedding.chunkSize')}
           name="chunk_size"
-          extra="建议 500-1000，保留更多语义上下文"
+          extra={t('settings.embedding.chunkSizeHint')}
         >
           <Input type="number" min={200} max={2000} />
         </Form.Item>
 
         <Form.Item
-          label="返回结果数量"
+          label={t('settings.embedding.topK')}
           name="top_k"
-          extra="搜索时返回的最大结果数"
+          extra={t('settings.embedding.topKHint')}
         >
           <Input type="number" min={1} max={20} />
         </Form.Item>
 
         <Form.Item
-          label="启用OCR"
+          label={t('settings.embedding.enableOcr')}
           name="enable_ocr"
           valuePropName="checked"
-          extra="对图片类文档进行文字识别"
+          extra={t('settings.embedding.enableOcrHint')}
         >
           <Switch />
         </Form.Item>
 
         <Form.Item>
           <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
-            保存配置
+            {t('common.save')}
           </Button>
         </Form.Item>
       </Form>
@@ -205,41 +235,35 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
   const SearchSettings = () => (
     <div>
       <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
-        搜索精度配置
+        {t('settings.search.title')}
       </div>
       <Form layout="vertical">
-        <Form.Item label="搜索精度预设" extra="调整搜索速度与准确率的平衡">
+        <Form.Item label={t('settings.search.preset')} extra={t('settings.search.presetHint')}>
           <Radio.Group value={searchPreset} onChange={(e) => handlePresetChange(e.target.value)}>
-            <Radio.Button value="fast">低精度高速度</Radio.Button>
-            <Radio.Button value="normal">正常</Radio.Button>
-            <Radio.Button value="precise">高精度低速度</Radio.Button>
+            <Radio.Button value="fast">{t('settings.search.fast')}</Radio.Button>
+            <Radio.Button value="normal">{t('settings.search.normal')}</Radio.Button>
+            <Radio.Button value="precise">{t('settings.search.precise')}</Radio.Button>
           </Radio.Group>
         </Form.Item>
         
         <div style={{ padding: 16, background: '#fafafa', borderRadius: 8 }}>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>
-            当前模式: {SEARCH_PRESETS[searchPreset as keyof typeof SEARCH_PRESETS].name}
+            {t('settings.search.currentMode')}: {SEARCH_PRESETS[searchPreset]?.name || searchPreset}
           </div>
           <div style={{ fontSize: 13, color: '#666', lineHeight: 1.8 }}>
             {searchPreset === 'fast' && (
               <ul style={{ margin: 0, paddingLeft: 20 }}>
-                <li>关闭重排序</li>
-                <li>召回10个候选文档</li>
-                <li>适合快速浏览，速度最快</li>
+                <li>{t('settings.search.fastDesc')}</li>
               </ul>
             )}
             {searchPreset === 'normal' && (
               <ul style={{ margin: 0, paddingLeft: 20 }}>
-                <li>开启重排序（Cross-Encoder）</li>
-                <li>召回15个候选文档</li>
-                <li>速度与准确率平衡，推荐日常使用</li>
+                <li>{t('settings.search.normalDesc')}</li>
               </ul>
             )}
             {searchPreset === 'precise' && (
               <ul style={{ margin: 0, paddingLeft: 20 }}>
-                <li>开启重排序 + 查询增强</li>
-                <li>召回30个候选文档</li>
-                <li>准确率最高，响应较慢</li>
+                <li>{t('settings.search.preciseDesc')}</li>
               </ul>
             )}
           </div>
@@ -248,11 +272,11 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
         <Divider />
 
         <div style={{ fontSize: 13, color: '#999' }}>
-          <strong>参数说明：</strong>
+          <strong>{t('settings.search.paramsDesc')}：</strong>
           <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-            <li><strong>重排序</strong>：使用Cross-Encoder模型对召回结果进行精细排序，提高准确率</li>
-            <li><strong>查询增强</strong>：生成查询变体，扩大召回范围</li>
-            <li><strong>召回数量</strong>：初始召回的候选文档数，越大准确率越高但速度越慢</li>
+            <li>{t('settings.search.rerankDesc')}</li>
+            <li>{t('settings.search.queryEnhanceDesc')}</li>
+            <li>{t('settings.search.recallDesc')}</li>
           </ul>
         </div>
       </Form>
@@ -263,10 +287,10 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
   const LLMSettings = () => (
     <div>
       <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
-        大模型接入配置
+        {t('settings.llm.title')}
       </div>
       <Form layout="vertical">
-        <Form.Item label="模型提供商" extra="选择大模型服务提供商">
+        <Form.Item label={t('settings.llm.provider')} extra={t('settings.llm.providerHint')}>
           <Select 
             value={llmConfig.provider} 
             onChange={(v) => {
@@ -282,15 +306,15 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
             }}
             style={{ width: '100%' }}
           >
-            <Option value="ollama">Ollama (本地)</Option>
-            <Option value="qwen">通义千问 (阿里云)</Option>
-            <Option value="glm">智谱GLM (智谱AI)</Option>
-            <Option value="deepseek">DeepSeek</Option>
-            <Option value="openai">OpenAI兼容API</Option>
+            <Option value="ollama">{t('settings.llm.providers.ollama')}</Option>
+            <Option value="qwen">{t('settings.llm.providers.qwen')}</Option>
+            <Option value="glm">{t('settings.llm.providers.glm')}</Option>
+            <Option value="deepseek">{t('settings.llm.providers.deepseek')}</Option>
+            <Option value="openai">{t('settings.llm.providers.openai')}</Option>
           </Select>
         </Form.Item>
 
-        <Form.Item label="模型名称" extra="输入具体的模型名称">
+        <Form.Item label={t('settings.llm.model')} extra={t('settings.llm.modelHint')}>
           <Input 
             value={llmConfig.model}
             onChange={(e) => setLlmConfig({ ...llmConfig, model: e.target.value })}
@@ -298,7 +322,7 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
           />
         </Form.Item>
 
-        <Form.Item label="API地址" extra={llmConfig.provider === 'ollama' ? 'Ollama服务地址' : '云端API基础地址'}>
+        <Form.Item label={t('settings.llm.apiUrl')} extra={llmConfig.provider === 'ollama' ? t('settings.llm.apiUrlHintLocal') : t('settings.llm.apiUrlHintCloud')}>
           <Input 
             value={llmConfig.api_url}
             onChange={(e) => setLlmConfig({ ...llmConfig, api_url: e.target.value })}
@@ -307,18 +331,18 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
         </Form.Item>
 
         {llmConfig.provider !== 'ollama' && (
-          <Form.Item label="API Key" extra={llmConfig.has_api_key ? '已配置，留空保持不变' : '云端API密钥，将安全存储在本地'}>
+          <Form.Item label={t('settings.llm.apiKey')} extra={llmConfig.has_api_key ? t('settings.llm.apiKeyConfigured') : t('settings.llm.apiKeyHint')}>
             <Input.Password 
               value={llmConfig.api_key}
               onChange={(e) => setLlmConfig({ ...llmConfig, api_key: e.target.value, has_api_key: !!e.target.value })}
-              placeholder={llmConfig.has_api_key ? '•••••••••••••••• (已配置)' : 'sk-xxxxxxxxxxxxxxxx'}
+              placeholder={llmConfig.has_api_key ? '•••••••••••••••• (' + t('common.configured') + ')' : 'sk-xxxxxxxxxxxxxxxx'}
               visibilityToggle
             />
           </Form.Item>
         )}
 
         <div style={{ display: 'flex', gap: 16 }}>
-          <Form.Item label="最大输出Token" extra="生成内容最大长度" style={{ flex: 1 }}>
+          <Form.Item label={t('settings.llm.maxTokens')} extra={t('settings.llm.maxTokensHint')} style={{ flex: 1 }}>
             <InputNumber 
               value={llmConfig.max_tokens}
               onChange={(v) => setLlmConfig({ ...llmConfig, max_tokens: v || 2048 })}
@@ -327,7 +351,7 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Form.Item label="温度参数" extra="随机性控制" style={{ flex: 1 }}>
+          <Form.Item label={t('settings.llm.temperature')} extra={t('settings.llm.temperatureHint')} style={{ flex: 1 }}>
             <InputNumber 
               value={llmConfig.temperature}
               onChange={(v) => setLlmConfig({ ...llmConfig, temperature: v || 0.7 })}
@@ -341,13 +365,13 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
 
         <Form.Item>
           <Button type="primary" onClick={saveLlmConfig} style={{ marginRight: 8 }} icon={<SaveOutlined />}>
-            保存配置
+            {t('common.save')}
           </Button>
           <Button onClick={testLlmConnection} loading={llmLoading}>
-            测试连接
+            {t('settings.llm.testConnection')}
           </Button>
           {llmTestResult && (
-            <span style={{ marginLeft: 12, color: llmTestResult.includes('成功') ? '#52c41a' : '#ff4d4f' }}>
+            <span style={{ marginLeft: 12, color: llmTestResult.includes(t('settings.llm.connectionSuccess')) ? '#52c41a' : '#ff4d4f' }}>
               {llmTestResult}
             </span>
           )}
@@ -356,11 +380,11 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
         <Divider />
 
         <div style={{ fontSize: 13, color: '#999' }}>
-          <strong>使用说明：</strong>
+          <strong>{t('settings.llm.usageNote')}：</strong>
           <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-            <li><strong>Ollama本地</strong>：需先安装Ollama并下载模型，运行 <code>ollama pull qwen2.5:7b</code></li>
-            <li><strong>云端API</strong>：需填写对应平台的API Key，可在各平台官网申请</li>
-            <li><strong>模型用途</strong>：用于搜索结果的AI问答生成，在搜索界面勾选"生成AI回答"启用</li>
+            <li>{t('settings.llm.ollamaNote')}</li>
+            <li>{t('settings.llm.cloudNote')}</li>
+            <li>{t('settings.llm.usageNote2')}</li>
           </ul>
         </div>
       </Form>
@@ -376,6 +400,8 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
         return <SearchSettings />;
       case 'llm':
         return <LLMSettings />;
+      case 'language':
+        return <LanguageSettings />;
       default:
         return <EmbeddingSettings />;
     }

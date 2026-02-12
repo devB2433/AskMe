@@ -8,8 +8,10 @@ import {
   LogoutOutlined,
   UserOutlined,
   ApiOutlined,
-  RobotOutlined
+  RobotOutlined,
+  GlobalOutlined
 } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import DocumentUpload from './components/DocumentUpload';
 import SearchInterface from './components/SearchInterface';
 import DocumentList from './components/DocumentList';
@@ -20,6 +22,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 const { Header, Sider, Content } = Layout;
 
 const AppContent: React.FC = () => {
+  const { t } = useTranslation();
   const { user, isAuthenticated, logout, isLoading } = useAuth();
   const [activeTab, setActiveTab] = React.useState('search');
   const [settingsTab, setSettingsTab] = React.useState('embedding');
@@ -34,7 +37,7 @@ const AppContent: React.FC = () => {
         justifyContent: 'center' 
       }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '18px', color: '#666' }}>加载中...</div>
+          <div style={{ fontSize: '18px', color: '#666' }}>{t('common.loading')}</div>
         </div>
       </div>
     );
@@ -49,37 +52,42 @@ const AppContent: React.FC = () => {
     {
       key: 'search',
       icon: <SearchOutlined />,
-      label: '知识检索',
+      label: t('nav.knowledgeSearch'),
     },
     {
       key: 'upload',
       icon: <UploadOutlined />,
-      label: '文档上传',
+      label: t('nav.documentUpload'),
     },
     {
       key: 'documents',
       icon: <FileTextOutlined />,
-      label: '文档管理',
+      label: t('nav.documentManagement'),
     },
     {
       key: 'settings',
       icon: <SettingOutlined />,
-      label: '系统设置',
+      label: t('nav.systemSettings'),
       children: [
         {
           key: 'settings-embedding',
           icon: <ApiOutlined />,
-          label: '嵌入模型配置',
+          label: t('nav.embeddingConfig'),
         },
         {
           key: 'settings-search',
           icon: <SearchOutlined />,
-          label: '搜索精度配置',
+          label: t('nav.searchConfig'),
         },
         {
           key: 'settings-llm',
           icon: <RobotOutlined />,
-          label: '大模型接入配置',
+          label: t('nav.llmConfig'),
+        },
+        {
+          key: 'settings-language',
+          icon: <GlobalOutlined />,
+          label: t('settings.language.title'),
         },
       ],
     },
@@ -89,7 +97,7 @@ const AppContent: React.FC = () => {
     {
       key: 'logout',
       icon: <LogoutOutlined />,
-      label: '退出登录',
+      label: t('header.logout'),
       onClick: logout
     }
   ];
@@ -130,7 +138,7 @@ const AppContent: React.FC = () => {
     <Layout style={{ minHeight: '100vh', background: '#fff' }}>
       <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1890ff' }}>
-          AskMe 知识库系统
+          {t('header.title')}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ color: '#666', fontSize: '14px' }}>{user?.department}</span>
