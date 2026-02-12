@@ -640,32 +640,43 @@ async def list_documents(
         文档列表
     """
     try:
-        state_mgr = get_state_manager()
+        # 从SQLite数据库获取文档列表
+        query = "SELECT * FROM documents ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params = [limit, offset]
         
-        # 查询文档状态
-        states = state_mgr.query_states(state_type=StateType.DOCUMENT)
+        if status:
+            query = "SELECT * FROM documents WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params = [status, limit, offset]
         
-        # 应用偏移和限制
-        filtered_states = states[offset:offset + limit]
+        docs = db.fetchall(query, tuple(params))
+        
+        # 获取总数
+        count_query = "SELECT COUNT(*) as total FROM documents"
+        count_params = ()
+        if status:
+            count_query = "SELECT COUNT(*) as total FROM documents WHERE status = ?"
+            count_params = (status,)
+        
+        total_result = db.fetchone(count_query, count_params)
+        total = total_result['total'] if total_result else 0
         
         documents = []
-        for state in filtered_states:
-            processing_result = state.data.get("processing_result", {})
-            # status可能是字符串或枚举
-            status_str = state.status.value if hasattr(state.status, 'value') else str(state.status)
+        for doc in docs:
             documents.append({
-                "document_id": state.entity_id,
-                "status": status_str,
-                "filename": state.data.get("filename", "Unknown"),
-                "collection_name": state.data.get("collection_name", "default"),
-                "chunks_count": processing_result.get("chunks_count", 0),
-                "created_at": state.created_at.isoformat() if hasattr(state.created_at, 'isoformat') else str(state.created_at),
-                "updated_at": state.updated_at.isoformat() if hasattr(state.updated_at, 'isoformat') else str(state.updated_at)
+                "document_id": doc['id'],
+                "status": doc['status'],
+                "filename": doc['filename'],
+                "collection_name": doc.get('collection_name', 'default'),
+                "chunks_count": doc.get('chunks_count', 0),
+                "team_id": doc.get('team_id', 'default'),
+                "uploaded_by": doc.get('uploaded_by', ''),
+                "created_at": doc['created_at'],
+                "updated_at": doc.get('updated_at', doc['created_at'])
             })
         
         return {
             "documents": documents,
-            "total": len(states),
+            "total": total,
             "limit": limit,
             "offset": offset
         }
