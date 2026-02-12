@@ -88,18 +88,15 @@ const DocumentList: React.FC = () => {
             size="small" 
             style={{ marginRight: 8 }}
             onClick={() => handleReprocess(record.document_id)}
-          >
-            重新处理
-          </Button>
+            title="重新处理"
+          />
           <Popconfirm
             title="确定要删除这个文档吗？"
             onConfirm={() => handleDelete(record.document_id)}
             okText="确定"
             cancelText="取消"
           >
-            <Button icon={<DeleteOutlined />} size="small" danger>
-              删除
-            </Button>
+            <Button icon={<DeleteOutlined />} size="small" danger title="删除" />
           </Popconfirm>
         </div>
       ),
