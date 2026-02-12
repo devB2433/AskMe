@@ -703,24 +703,34 @@ async def delete_document(document_id: str):
     """
     try:
         state_mgr = get_state_manager()
+        _, milvus, _, _ = get_services()
         
         # 检查文档是否存在
-        states = state_mgr.query_states(
-            entity_id=document_id,
-            state_type=StateType.DOCUMENT
-        )
+        doc = db.fetchone("SELECT * FROM documents WHERE id = ?", (document_id,))
         
-        if not states:
+        if not doc:
             raise HTTPException(status_code=404, detail="文档不存在")
+        
+        # 删除向量数据
+        try:
+            milvus.delete_vectors_by_document_id("askme_documents", document_id)
+            logger.info(f"已删除向量数据: {document_id}")
+        except Exception as e:
+            logger.warning(f"删除向量数据失败: {e}")
+        
+        # 删除数据库记录
+        db.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+        db.conn.commit()
         
         # 删除状态记录
         state_mgr.delete_state(f"document_{document_id}")
         
         # 删除上传文件
-        upload_files = Path("uploads").glob(f"{document_id}_*")
-        for file_path in upload_files:
+        upload_dir = Path("uploads")
+        for file_path in upload_dir.glob(f"{document_id}_*"):
             if file_path.exists():
                 file_path.unlink()
+                logger.info(f"已删除文件: {file_path}")
         
         logger.info(f"文档删除成功: {document_id}")
         
@@ -749,50 +759,61 @@ async def reprocess_document(document_id: str, config: Optional[Dict[str, Any]] 
         重新处理结果
     """
     try:
-        processor, _, _, state_mgr = get_services()
+        processor, milvus, encoder, state_mgr = get_services()
         
         # 检查文档是否存在
-        states = state_mgr.query_states(
-            entity_id=document_id,
-            state_type=StateType.DOCUMENT
-        )
+        doc = db.fetchone("SELECT * FROM documents WHERE id = ?", (document_id,))
         
-        if not states:
+        if not doc:
             raise HTTPException(status_code=404, detail="文档不存在")
         
-        state = states[0]
-        filename = state.data.get("filename", "")
-        
-        # 更新状态为处理中
-        state_mgr.update_state(
-            f"document_{document_id}",
-            new_status=StateStatus.PROCESSING
-        )
+        filename = doc.get("filename", "")
         
         # 查找上传文件
         upload_dir = Path("uploads")
         file_path = None
         for uploaded_file in upload_dir.glob(f"{document_id}_*"):
-            if uploaded_file.exists():
+            if uploaded_file.exists() and not uploaded_file.name.endswith("_content.json"):
                 file_path = uploaded_file
                 break
         
         if not file_path:
             raise HTTPException(status_code=404, detail="原始文件不存在")
         
+        # 删除旧向量数据
+        try:
+            milvus.delete_vectors_by_document_id("askme_documents", document_id)
+        except Exception as e:
+            logger.warning(f"删除旧向量失败: {e}")
+        
         # 重新处理文档
         chunks = processor.process_document(str(file_path), filename)
         
-        # 更新最终状态
-        state_mgr.update_state(
-            f"document_{document_id}",
-            new_status=StateStatus.COMPLETED,
-            new_data={
-                "reprocessing_result": {
-                    "chunks_count": len(chunks)
-                }
-            }
+        # 向量化并存储
+        if chunks:
+            chunk_texts = [c.get("content", "") for c in chunks if c.get("content")]
+            if chunk_texts:
+                vectors = encoder.encode_batch(chunk_texts)
+                import time
+                milvus.insert_vectors(
+                    collection_name="askme_documents",
+                    vectors=vectors,
+                    documents=[{
+                        "document_id": document_id,
+                        "team_id": doc.get("team_id", "default"),
+                        "chunk_id": f"{document_id}_{i}",
+                        "content": c.get("content", "")[:1000],
+                        "metadata": {"chunk_index": i},
+                        "created_at": int(time.time())
+                    } for i, c in enumerate(chunks)]
+                )
+        
+        # 更新数据库记录
+        db.execute(
+            "UPDATE documents SET chunks_count = ?, status = 'completed' WHERE id = ?",
+            (len(chunks), document_id)
         )
+        db.conn.commit()
         
         logger.info(f"文档重新处理完成: {document_id}")
         
