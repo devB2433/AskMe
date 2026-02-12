@@ -94,8 +94,8 @@ const SearchInterface: React.FC = () => {
     }
     
     try {
-      const response = await axios.get(`http://localhost:8001/api/teams/suggest?q=${deptQuery}`);
-      const departments = response.data.teams || [];
+      const response = await axios.get(`http://localhost:8001/api/users/departments/suggest?q=${deptQuery}`);
+      const departments = response.data.departments || [];
       setOptions(departments.map((dept: string) => ({
         value: `/${dept} `,
         label: dept
