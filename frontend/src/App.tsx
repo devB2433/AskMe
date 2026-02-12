@@ -153,15 +153,13 @@ const AppContent: React.FC = () => {
             onClick={handleMenuClick}
           />
         </Sider>
-        <Layout style={{ padding: '24px' }}>
+        <Layout style={{ padding: '24px', background: '#fff' }}>
           <Content
             style={{
               padding: 24,
               margin: 0,
               minHeight: 280,
-              background: '#fff',
-              borderRadius: 8,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              background: '#fff'
             }}
           >
             {renderContent()}
