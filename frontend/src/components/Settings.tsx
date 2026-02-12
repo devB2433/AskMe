@@ -1,17 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider, InputNumber, Menu, Row, Col } from 'antd';
-import { SaveOutlined, ApiOutlined, SearchOutlined, RobotOutlined } from '@ant-design/icons';
+import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider, InputNumber } from 'antd';
+import { SaveOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
 const { Option } = Select;
 
 const API_BASE = 'http://localhost:8001/api';
 
-const Settings: React.FC = () => {
+interface SettingsProps {
+  activeKey: string;
+  onTabChange: (key: string) => void;
+}
+
+const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeMenu, setActiveMenu] = useState('embedding');
   
   // 搜索精度配置
   const [searchPreset, setSearchPreset] = useState<string>('normal');
@@ -140,7 +144,10 @@ const Settings: React.FC = () => {
 
   // 嵌入模型配置页面
   const EmbeddingSettings = () => (
-    <Card title="嵌入模型配置">
+    <div>
+      <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+        嵌入模型配置
+      </div>
       <Form
         form={form}
         layout="vertical"
@@ -189,12 +196,15 @@ const Settings: React.FC = () => {
           </Button>
         </Form.Item>
       </Form>
-    </Card>
+    </div>
   );
 
   // 搜索精度配置页面
   const SearchSettings = () => (
-    <Card title="搜索精度配置">
+    <div>
+      <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+        搜索精度配置
+      </div>
       <Form layout="vertical">
         <Form.Item label="搜索精度预设" extra="调整搜索速度与准确率的平衡">
           <Radio.Group value={searchPreset} onChange={(e) => handlePresetChange(e.target.value)}>
@@ -204,7 +214,7 @@ const Settings: React.FC = () => {
           </Radio.Group>
         </Form.Item>
         
-        <div style={{ padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+        <div style={{ padding: 16, background: '#fafafa', borderRadius: 8 }}>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>
             当前模式: {SEARCH_PRESETS[searchPreset as keyof typeof SEARCH_PRESETS].name}
           </div>
@@ -244,12 +254,15 @@ const Settings: React.FC = () => {
           </ul>
         </div>
       </Form>
-    </Card>
+    </div>
   );
 
   // 大模型配置页面
   const LLMSettings = () => (
-    <Card title="大模型接入配置">
+    <div>
+      <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+        大模型接入配置
+      </div>
       <Form layout="vertical">
         <Form.Item label="模型提供商" extra="选择大模型服务提供商">
           <Select 
@@ -302,31 +315,27 @@ const Settings: React.FC = () => {
           </Form.Item>
         )}
 
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item label="最大输出Token" extra="生成内容最大长度">
-              <InputNumber 
-                value={llmConfig.max_tokens}
-                onChange={(v) => setLlmConfig({ ...llmConfig, max_tokens: v || 2048 })}
-                min={100}
-                max={8192}
-                style={{ width: '100%' }}
-              />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="温度参数" extra="随机性控制，越高越随机">
-              <InputNumber 
-                value={llmConfig.temperature}
-                onChange={(v) => setLlmConfig({ ...llmConfig, temperature: v || 0.7 })}
-                min={0}
-                max={1}
-                step={0.1}
-                style={{ width: '100%' }}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
+        <div style={{ display: 'flex', gap: 16 }}>
+          <Form.Item label="最大输出Token" extra="生成内容最大长度" style={{ flex: 1 }}>
+            <InputNumber 
+              value={llmConfig.max_tokens}
+              onChange={(v) => setLlmConfig({ ...llmConfig, max_tokens: v || 2048 })}
+              min={100}
+              max={8192}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+          <Form.Item label="温度参数" extra="随机性控制" style={{ flex: 1 }}>
+            <InputNumber 
+              value={llmConfig.temperature}
+              onChange={(v) => setLlmConfig({ ...llmConfig, temperature: v || 0.7 })}
+              min={0}
+              max={1}
+              step={0.1}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </div>
 
         <Form.Item>
           <Button type="primary" onClick={saveLlmConfig} style={{ marginRight: 8 }} icon={<SaveOutlined />}>
@@ -353,12 +362,12 @@ const Settings: React.FC = () => {
           </ul>
         </div>
       </Form>
-    </Card>
+    </div>
   );
 
   // 渲染当前页面
   const renderContent = () => {
-    switch (activeMenu) {
+    switch (activeKey) {
       case 'embedding':
         return <EmbeddingSettings />;
       case 'search':
@@ -370,41 +379,7 @@ const Settings: React.FC = () => {
     }
   };
 
-  return (
-    <div style={{ display: 'flex', gap: 24 }}>
-      {/* 左侧菜单 */}
-      <Card style={{ width: 200, height: 'fit-content' }}>
-        <Menu
-          mode="vertical"
-          selectedKeys={[activeMenu]}
-          onClick={({ key }) => setActiveMenu(key)}
-          style={{ border: 'none' }}
-          items={[
-            {
-              key: 'embedding',
-              icon: <ApiOutlined />,
-              label: '嵌入模型配置',
-            },
-            {
-              key: 'search',
-              icon: <SearchOutlined />,
-              label: '搜索精度配置',
-            },
-            {
-              key: 'llm',
-              icon: <RobotOutlined />,
-              label: '大模型接入配置',
-            },
-          ]}
-        />
-      </Card>
-
-      {/* 右侧内容 */}
-      <div style={{ flex: 1, maxWidth: 600 }}>
-        {renderContent()}
-      </div>
-    </div>
-  );
+  return renderContent();
 };
 
 export default Settings;

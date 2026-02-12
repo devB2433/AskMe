@@ -6,7 +6,9 @@ import {
   FileTextOutlined,
   SettingOutlined,
   LogoutOutlined,
-  UserOutlined
+  UserOutlined,
+  ApiOutlined,
+  RobotOutlined
 } from '@ant-design/icons';
 import DocumentUpload from './components/DocumentUpload';
 import SearchInterface from './components/SearchInterface';
@@ -20,6 +22,7 @@ const { Header, Sider, Content } = Layout;
 const AppContent: React.FC = () => {
   const { user, isAuthenticated, logout, isLoading } = useAuth();
   const [activeTab, setActiveTab] = React.useState('search');
+  const [settingsTab, setSettingsTab] = React.useState('embedding');
 
   // 加载中
   if (isLoading) {
@@ -62,6 +65,23 @@ const AppContent: React.FC = () => {
       key: 'settings',
       icon: <SettingOutlined />,
       label: '系统设置',
+      children: [
+        {
+          key: 'settings-embedding',
+          icon: <ApiOutlined />,
+          label: '嵌入模型配置',
+        },
+        {
+          key: 'settings-search',
+          icon: <SearchOutlined />,
+          label: '搜索精度配置',
+        },
+        {
+          key: 'settings-llm',
+          icon: <RobotOutlined />,
+          label: '大模型接入配置',
+        },
+      ],
     },
   ];
 
@@ -74,6 +94,23 @@ const AppContent: React.FC = () => {
     }
   ];
 
+  const handleMenuClick = ({ key }: { key: string }) => {
+    if (key.startsWith('settings-')) {
+      setActiveTab('settings');
+      setSettingsTab(key.replace('settings-', ''));
+    } else {
+      setActiveTab(key);
+    }
+  };
+
+  // 获取选中的菜单key
+  const getSelectedKeys = () => {
+    if (activeTab === 'settings') {
+      return [`settings-${settingsTab}`];
+    }
+    return [activeTab];
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'upload':
@@ -83,7 +120,7 @@ const AppContent: React.FC = () => {
       case 'documents':
         return <DocumentList />;
       case 'settings':
-        return <Settings />;
+        return <Settings activeKey={settingsTab} onTabChange={setSettingsTab} />;
       default:
         return <SearchInterface />;
     }
@@ -109,10 +146,11 @@ const AppContent: React.FC = () => {
         <Sider width={200} style={{ background: '#fff' }}>
           <Menu
             mode="inline"
-            selectedKeys={[activeTab]}
+            selectedKeys={getSelectedKeys()}
+            defaultOpenKeys={['settings']}
             style={{ height: '100%', borderRight: 0 }}
             items={menuItems}
-            onClick={({ key }) => setActiveTab(key)}
+            onClick={handleMenuClick}
           />
         </Sider>
         <Layout style={{ padding: '24px' }}>
