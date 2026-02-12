@@ -68,8 +68,8 @@ async def search_documents(
     limit: int = Query(10, description="返回结果数量"),
     team: str = Query(None, description="团队/部门过滤"),
     use_rerank: bool = Query(True, description="是否使用重排序"),
-    use_query_enhance: bool = Query(True, description="是否使用查询增强"),
-    recall_size: int = Query(30, description="召回数量（重排序前）"),
+    use_query_enhance: bool = Query(False, description="是否使用查询增强"),
+    recall_size: int = Query(15, description="召回数量（重排序前）"),
     authorization: Optional[str] = Header(None)
 ):
     """

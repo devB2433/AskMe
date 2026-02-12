@@ -164,6 +164,20 @@ async def lifespan(app: FastAPI):
         # 初始化任务队列表
         init_tasks_table()
         
+        # 预加载重排序模型（后台线程加载，不阻塞启动）
+        try:
+            import threading
+            from services.reranker import preload_reranker
+            def load_reranker():
+                try:
+                    preload_reranker()
+                except Exception as e:
+                    logger.warning(f"重排序模型预加载失败: {e}")
+            thread = threading.Thread(target=load_reranker, daemon=True)
+            thread.start()
+        except Exception as e:
+            logger.warning(f"重排序模型预加载启动失败: {e}")
+        
         logger.info("服务初始化完成")
     except Exception as e:
         logger.error(f"服务初始化失败: {e}")
