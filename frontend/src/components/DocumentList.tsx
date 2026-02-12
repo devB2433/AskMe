@@ -53,6 +53,12 @@ const DocumentList: React.FC = () => {
       key: 'filename',
     },
     {
+      title: '部门',
+      dataIndex: 'team_id',
+      key: 'team_id',
+      render: (team_id: string) => team_id || '-',
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
