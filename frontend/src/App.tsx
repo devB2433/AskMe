@@ -127,7 +127,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: '#fff' }}>
       <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1890ff' }}>
           AskMe 知识库系统
@@ -143,7 +143,7 @@ const AppContent: React.FC = () => {
         </div>
       </Header>
       <Layout>
-        <Sider width={200} style={{ background: '#fff' }}>
+        <Sider width={200} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
           <Menu
             mode="inline"
             selectedKeys={getSelectedKeys()}
