@@ -80,6 +80,7 @@ const DocumentUpload: React.FC = () => {
   const { token, user } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
   const pollingRef = useRef<number | null>(null);
+  const initializedRef = useRef(false);
 
   // 获取上传配置
   useEffect(() => {
@@ -165,6 +166,10 @@ const DocumentUpload: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // 防止重复初始化
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    
     connectWebSocket();
     pollTasks();
     pollingRef.current = window.setInterval(pollTasks, 3000);
@@ -175,7 +180,7 @@ const DocumentUpload: React.FC = () => {
         clearInterval(pollingRef.current);
       }
     };
-  }, [connectWebSocket, pollTasks]);
+  }, []); // 空依赖，只在组件挂载时执行一次
 
   // 批量上传
   const handleBatchUpload = async (files: File[]) => {
