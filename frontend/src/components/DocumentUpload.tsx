@@ -311,14 +311,32 @@ const DocumentUpload: React.FC = () => {
     );
   };
 
+  // 标记已处理的文件，防止重复上传
+  const processedFilesRef = useRef<Set<string>>(new Set());
+
   const uploadProps = {
     name: 'files',
     multiple: true,
     showUploadList: false,
     beforeUpload: () => false,
     onChange: (info: any) => {
+      // 只在文件被添加时处理（status: 'done' 或 'uploading'）
+      if (info.file.status !== 'done' && info.file.status !== 'uploading') {
+        return;
+      }
+      
       if (info.fileList.length > 0) {
-        const files = info.fileList.map((f: any) => f.originFileObj).filter(Boolean);
+        // 过滤掉已处理的文件
+        const newFiles = info.fileList.filter((f: any) => {
+          const uid = f.uid || f.name;
+          if (processedFilesRef.current.has(uid)) {
+            return false;
+          }
+          processedFilesRef.current.add(uid);
+          return true;
+        });
+        
+        const files = newFiles.map((f: any) => f.originFileObj).filter(Boolean);
         if (files.length > 0) {
           const oversizedFiles = files.filter((f: File) => 
             uploadConfig && f.size > uploadConfig.max_file_size_mb * 1024 * 1024
