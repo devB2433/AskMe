@@ -26,6 +26,7 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
     model: 'qwen2.5:7b',
     api_url: 'http://localhost:11434',
     api_key: '',
+    has_api_key: false,
     max_tokens: 2048,
     temperature: 0.7
   });
@@ -71,6 +72,7 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
           model: llmRes.data.model || 'qwen2.5:7b',
           api_url: llmRes.data.api_url || 'http://localhost:11434',
           api_key: '',
+          has_api_key: llmRes.data.has_api_key || false,
           max_tokens: llmRes.data.max_tokens || 2048,
           temperature: llmRes.data.temperature || 0.7
         });
@@ -305,11 +307,11 @@ const Settings: React.FC<SettingsProps> = ({ activeKey, onTabChange }) => {
         </Form.Item>
 
         {llmConfig.provider !== 'ollama' && (
-          <Form.Item label="API Key" extra="云端API密钥，将安全存储在本地">
+          <Form.Item label="API Key" extra={llmConfig.has_api_key ? '已配置，留空保持不变' : '云端API密钥，将安全存储在本地'}>
             <Input.Password 
               value={llmConfig.api_key}
-              onChange={(e) => setLlmConfig({ ...llmConfig, api_key: e.target.value })}
-              placeholder="sk-xxxxxxxxxxxxxxxx"
+              onChange={(e) => setLlmConfig({ ...llmConfig, api_key: e.target.value, has_api_key: !!e.target.value })}
+              placeholder={llmConfig.has_api_key ? '•••••••••••••••• (已配置)' : 'sk-xxxxxxxxxxxxxxxx'}
               visibilityToggle
             />
           </Form.Item>

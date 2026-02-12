@@ -60,6 +60,7 @@ async def get_llm_config_api():
         "model": config.model,
         "api_url": config.api_url,
         "api_key_masked": _mask_api_key(config.api_key),
+        "has_api_key": bool(config.api_key),
         "max_tokens": config.max_tokens,
         "temperature": config.temperature,
         "timeout": config.timeout,
@@ -70,6 +71,12 @@ async def get_llm_config_api():
 @router.post("/config", summary="保存LLM配置")
 async def save_llm_config_api(config: LLMConfigRequest):
     """保存LLM配置"""
+    # 如果api_key为空字符串，保留原有的key
+    from services.llm_service import get_llm_service
+    if not config.api_key:
+        existing_config = get_llm_service().config
+        config.api_key = existing_config.api_key
+    
     new_config = LLMConfig(
         provider=config.provider,
         model=config.model,
