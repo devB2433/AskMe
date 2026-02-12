@@ -94,7 +94,23 @@ const DocumentUpload: React.FC = () => {
     try {
       const response = await fetch('http://localhost:8001/api/documents/tasks');
       const data = await response.json();
-      setTasks(data.tasks || []);
+      // 合并任务列表，保留本地最新的进度信息
+      setTasks(prev => {
+        const serverTasks = data.tasks || [];
+        const serverTaskIds = new Set(serverTasks.map((t: Task) => t.task_id));
+        
+        // 过滤掉已不在服务器的任务，同时合并最新的进度
+        const mergedTasks = serverTasks.map((serverTask: Task) => {
+          const localTask = prev.find(t => t.task_id === serverTask.task_id);
+          // 如果本地有更新的进度，优先使用本地（处理中状态）
+          if (localTask && localTask.status === 'processing' && serverTask.status !== 'processing') {
+            return localTask;
+          }
+          return serverTask;
+        });
+        
+        return mergedTasks;
+      });
     } catch (error) {
       console.error('获取任务列表失败:', error);
     }
@@ -116,6 +132,7 @@ const DocumentUpload: React.FC = () => {
         const data = JSON.parse(event.data);
         
         if (data.type === 'task_progress') {
+          // WebSocket 只更新单个任务，不添加新任务
           setTasks(prev => {
             const taskIndex = prev.findIndex(t => t.task_id === data.data.task_id);
             if (taskIndex >= 0) {
@@ -123,10 +140,9 @@ const DocumentUpload: React.FC = () => {
               newTasks[taskIndex] = data.data;
               return newTasks;
             }
-            return [data.data, ...prev];
+            // 如果任务不存在，可能是新任务，但由轮询来添加
+            return prev;
           });
-        } else if (data.type === 'status') {
-          setTasks(data.tasks || []);
         } else if (data.type === 'ping') {
           ws.send('pong');
         }
