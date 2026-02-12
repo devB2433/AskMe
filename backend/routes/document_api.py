@@ -388,6 +388,11 @@ async def batch_upload_documents(
                     } for i, c in enumerate(chunks)]
                 )
                 
+                # 更新进度：存储完成
+                task_queue.update_progress(
+                    task.task_id, TaskStage.STORING, 100, 100, "向量存储完成"
+                )
+                
                 logger.info(f"向量化存储完成: {len(chunk_ids)} 个向量")
                 vector_stored = True
             except Exception as e:

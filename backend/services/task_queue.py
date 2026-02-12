@@ -337,10 +337,14 @@ class TaskQueue:
                     task.progress.current = 100
                     task.progress.total = 100
                     logger.info(f"任务完成: {task_id}")
+                    # 广播完成状态
+                    self._broadcast_task_progress(task)
                 except Exception as e:
                     task.status = TaskStatus.FAILED
                     task.error = str(e)
                     logger.error(f"任务失败: {task_id} - {e}")
+                    # 广播失败状态
+                    self._broadcast_task_progress(task)
                 
                 task.completed_at = datetime.now()
                 self._update_task_in_db(task)
