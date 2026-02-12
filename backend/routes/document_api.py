@@ -667,16 +667,17 @@ async def list_documents(
         
         documents = []
         for doc in docs:
+            doc_dict = dict(doc)  # 转换为普通字典
             documents.append({
-                "document_id": doc['id'],
-                "status": doc['status'],
-                "filename": doc['filename'],
-                "collection_name": doc.get('collection_name', 'default'),
-                "chunks_count": doc.get('chunks_count', 0),
-                "team_id": doc.get('team_id', 'default'),
-                "uploaded_by": doc.get('uploaded_by', ''),
-                "created_at": doc['created_at'],
-                "updated_at": doc.get('updated_at', doc['created_at'])
+                "document_id": doc_dict.get('id', ''),
+                "status": doc_dict.get('status', 'pending'),
+                "filename": doc_dict.get('filename', ''),
+                "collection_name": doc_dict.get('collection_name', 'default'),
+                "chunks_count": doc_dict.get('chunks_count', 0),
+                "team_id": doc_dict.get('team_id', 'default'),
+                "uploaded_by": doc_dict.get('uploaded_by', ''),
+                "created_at": doc_dict.get('created_at', ''),
+                "updated_at": doc_dict.get('updated_at', doc_dict.get('created_at', ''))
             })
         
         return {
