@@ -142,6 +142,11 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     logger.info("启动AskMe知识库系统...")
     
+    # 保存事件循环引用到任务队列
+    import asyncio
+    from services.task_queue import task_queue
+    task_queue.set_event_loop(asyncio.get_running_loop())
+    
     # 初始化服务
     try:
         # 检查向量索引是否存在，不存在则重建

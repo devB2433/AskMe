@@ -114,6 +114,9 @@ class TaskQueue:
         # WebSocket连接管理
         self._ws_connections: set = set()
         
+        # 主事件循环引用（用于线程安全广播）
+        self._event_loop = None
+        
         # 任务处理器注册
         self._handlers: Dict[str, Callable] = {}
         
@@ -121,6 +124,11 @@ class TaskQueue:
         self._start_workers()
         
         logger.info(f"任务队列初始化完成: 工作线程={self._worker_count}")
+    
+    def set_event_loop(self, loop):
+        """设置主事件循环引用"""
+        self._event_loop = loop
+        logger.debug("事件循环引用已设置")
     
     def register_handler(self, task_type: str, handler: Callable):
         """注册任务处理器"""
@@ -253,7 +261,28 @@ class TaskQueue:
         # 更新数据库
         self._update_task_in_db(task)
         
+        # 实时广播进度更新（线程安全）
+        self._broadcast_task_progress(task)
+        
         logger.debug(f"任务进度更新: {task_id} - {stage.value} - {current}/{total}")
+    
+    def _broadcast_task_progress(self, task: Task):
+        """线程安全地广播任务进度"""
+        import asyncio
+        
+        # 使用保存的主事件循环
+        if not self._event_loop:
+            return
+        
+        try:
+            # 在主事件循环中调度广播
+            future = asyncio.run_coroutine_threadsafe(
+                self.broadcast_progress(task),
+                self._event_loop
+            )
+            # 不等待结果，立即返回
+        except Exception as e:
+            logger.warning(f"广播进度失败: {e}")
     
     def _start_workers(self):
         """启动工作线程"""

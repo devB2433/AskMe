@@ -275,8 +275,8 @@ const DocumentUpload: React.FC = () => {
     }
     
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 280 }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 100 }}>
           <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 11, color: '#666' }}>文档处理</span>
             {task.status === 'processing' && phaseInfo.phase === 'upload' && (
@@ -291,7 +291,7 @@ const DocumentUpload: React.FC = () => {
             style={{ margin: 0 }}
           />
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ width: 100 }}>
           <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 11, color: '#666' }}>向量化</span>
             {task.status === 'processing' && phaseInfo.phase === 'vector' && (
@@ -320,35 +320,31 @@ const DocumentUpload: React.FC = () => {
     showUploadList: false,
     beforeUpload: () => false,
     onChange: (info: any) => {
-      // 只在文件被添加时处理（status: 'done' 或 'uploading'）
-      if (info.file.status !== 'done' && info.file.status !== 'uploading') {
-        return;
-      }
-      
-      if (info.fileList.length > 0) {
-        // 过滤掉已处理的文件
-        const newFiles = info.fileList.filter((f: any) => {
-          const uid = f.uid || f.name;
-          if (processedFilesRef.current.has(uid)) {
-            return false;
-          }
-          processedFilesRef.current.add(uid);
-          return true;
-        });
-        
-        const files = newFiles.map((f: any) => f.originFileObj).filter(Boolean);
-        if (files.length > 0) {
-          const oversizedFiles = files.filter((f: File) => 
-            uploadConfig && f.size > uploadConfig.max_file_size_mb * 1024 * 1024
-          );
-          
-          if (oversizedFiles.length > 0) {
-            message.error(`以下文件超过大小限制(${uploadConfig?.max_file_size_mb}MB): ${oversizedFiles.map((f: File) => f.name).join(', ')}`);
-            return;
-          }
-          
-          handleBatchUpload(files);
+      // 当有新文件添加时处理
+      const newFiles = info.fileList.filter((f: any) => {
+        const uid = f.uid;
+        // 只处理未被处理过的文件
+        if (!uid || processedFilesRef.current.has(uid)) {
+          return false;
         }
+        // 标记为已处理
+        processedFilesRef.current.add(uid);
+        return f.originFileObj;
+      });
+      
+      const files = newFiles.map((f: any) => f.originFileObj).filter(Boolean);
+      
+      if (files.length > 0) {
+        const oversizedFiles = files.filter((f: File) => 
+          uploadConfig && f.size > uploadConfig.max_file_size_mb * 1024 * 1024
+        );
+        
+        if (oversizedFiles.length > 0) {
+          message.error(`以下文件超过大小限制(${uploadConfig?.max_file_size_mb}MB): ${oversizedFiles.map((f: File) => f.name).join(', ')}`);
+          return;
+        }
+        
+        handleBatchUpload(files);
       }
     }
   };
