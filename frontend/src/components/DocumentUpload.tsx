@@ -273,10 +273,10 @@ const DocumentUpload: React.FC = () => {
     }
     
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
         <div style={{ width: 120 }}>
           <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11, color: '#666' }}>文档处理</span>
+            <span style={{ fontSize: 11, color: '#666' }}>文件上传</span>
             {task.status === 'processing' && phaseInfo.phase === 'upload' && (
               <SyncOutlined spin style={{ fontSize: 10, color: '#1890ff', marginLeft: 8 }} />
             )}
