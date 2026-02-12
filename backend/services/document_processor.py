@@ -76,28 +76,123 @@ class OfficeHandler(FormatHandler):
     
     def handle(self, file_path: str) -> List[Dict[str, Any]]:
         """处理Office文档"""
+        ext = Path(file_path).suffix.lower()
+        
+        # PPT处理
+        if ext in {'.ppt', '.pptx'}:
+            result = self._handle_ppt(file_path)
+            if result:
+                return result
+        
+        # Excel处理
+        if ext in {'.xls', '.xlsx'}:
+            result = self._handle_excel(file_path)
+            if result:
+                return result
+        
+        # Word处理
+        if ext in {'.doc', '.docx'}:
+            result = self._handle_word(file_path)
+            if result:
+                return result
+        
+        # 回退到unstructured
         try:
             elements = partition(filename=file_path)
-            return self._elements_to_dict(elements)
+            if elements:
+                return self._elements_to_dict(elements)
         except Exception as e:
-            print(f"Office文档处理失败: {e}")
-            return [{"type": "error", "content": f"Office文档处理失败: {str(e)}"}]
+            print(f"unstructured处理失败: {e}")
+        
+        return [{"type": "error", "content": "无法处理文件"}]
     
-    def _elements_to_dict(self, elements) -> List[Dict[str, Any]]:
-        result = []
-        for i, element in enumerate(elements):
-            result.append({
-                "type": getattr(element, 'category', 'text'),
-                "content": str(element),
-                "position": i,
-                "metadata": {
-                    "element_type": type(element).__name__,
-                    "page_number": getattr(element, 'page_number', None)
-                }
-            })
-        return result
-
-
+    def _handle_ppt(self, file_path: str) -> Optional[List[Dict[str, Any]]]:
+        """使用python-pptx处理PPT"""
+        try:
+            from pptx import Presentation
+            prs = Presentation(file_path)
+            result = []
+            for slide_num, slide in enumerate(prs.slides, 1):
+                slide_text = []
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_text.append(shape.text.strip())
+                if slide_text:
+                    result.append({
+                        "type": "text",
+                        "content": "\n".join(slide_text),
+                        "position": slide_num,
+                        "metadata": {"slide_number": slide_num, "source": "python-pptx"}
+                    })
+            return result if result else None
+        except ImportError:
+            print("python-pptx未安装，尝试使用unstructured")
+            return None
+        except Exception as e:
+            print(f"PPT处理失败: {e}")
+            return None
+    
+    def _handle_excel(self, file_path: str) -> Optional[List[Dict[str, Any]]]:
+        """使用openpyxl处理Excel"""
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(file_path, data_only=True)
+            result = []
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+                rows_text = []
+                for row in sheet.iter_rows(values_only=True):
+                    row_text = " | ".join(str(cell) if cell else "" for cell in row)
+                    if row_text.strip():
+                        rows_text.append(row_text)
+                if rows_text:
+                    result.append({
+                        "type": "text",
+                        "content": "\n".join(rows_text),
+                        "position": len(result) + 1,
+                        "metadata": {"sheet_name": sheet_name, "source": "openpyxl"}
+                    })
+            return result if result else None
+        except ImportError:
+            print("openpyxl未安装，尝试使用unstructured")
+            return None
+        except Exception as e:
+            print(f"Excel处理失败: {e}")
+            return None
+    
+    def _handle_word(self, file_path: str) -> Optional[List[Dict[str, Any]]]:
+        """使用python-docx处理Word"""
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            result = []
+            # 提取段落
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    result.append({
+                        "type": "text",
+                        "content": para.text.strip(),
+                        "position": len(result) + 1,
+                        "metadata": {"source": "python-docx"}
+                    })
+            # 提取表格
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                    if row_text.strip():
+                        result.append({
+                            "type": "text",
+                            "content": row_text,
+                            "position": len(result) + 1,
+                            "metadata": {"source": "python-docx", "type": "table_row"}
+                        })
+            return result if result else None
+        except ImportError:
+            print("python-docx未安装，尝试使用unstructured")
+            return None
+        except Exception as e:
+            print(f"Word处理失败: {e}")
+            return None
 class ImageHandler(FormatHandler):
     """图片处理器 (集成GLM-OCR)"""
     
@@ -157,7 +252,7 @@ class ImageHandler(FormatHandler):
 class TextHandler(FormatHandler):
     """文本文件处理器 (txt, md等)"""
     
-    SUPPORTED_EXTENSIONS = {'.txt', '.md', '.markdown', '.rst', '.csv'}
+    SUPPORTED_EXTENSIONS = {'.txt', '.md', '.markdown', '.rst', '.csv', '.json', '.xml', '.yaml', '.yml', '.html', '.htm', '.log'}
     
     def can_handle(self, file_path: str) -> bool:
         return Path(file_path).suffix.lower() in self.SUPPORTED_EXTENSIONS
