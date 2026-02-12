@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider, Alert, InputNumber, Tooltip } from 'antd';
-import { SaveOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
+import { Card, Form, Input, Button, Switch, Select, message, Spin, Radio, Divider, InputNumber, Menu, Row, Col } from 'antd';
+import { SaveOutlined, ApiOutlined, SearchOutlined, RobotOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
 const { Option } = Select;
@@ -11,7 +11,12 @@ const Settings: React.FC = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeMenu, setActiveMenu] = useState('embedding');
+  
+  // 搜索精度配置
   const [searchPreset, setSearchPreset] = useState<string>('normal');
+  
+  // LLM配置
   const [llmConfig, setLlmConfig] = useState<any>({
     provider: 'ollama',
     model: 'qwen2.5:7b',
@@ -20,10 +25,8 @@ const Settings: React.FC = () => {
     max_tokens: 2048,
     temperature: 0.7
   });
-  const [llmPresets, setLlmPresets] = useState<any[]>([]);
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmTestResult, setLlmTestResult] = useState<string>('');
-  const [showApiKey, setShowApiKey] = useState(false);
 
   // 搜索精度预设配置
   const SEARCH_PRESETS = {
@@ -44,7 +47,6 @@ const Settings: React.FC = () => {
           enable_ocr: response.data.enable_ocr ?? true,
         });
       } catch (error) {
-        // 使用默认值
         form.setFieldsValue({
           embedding_model: 'BAAI/bge-small-zh-v1.5',
           chunk_size: 800,
@@ -64,11 +66,10 @@ const Settings: React.FC = () => {
           provider: llmRes.data.provider || 'ollama',
           model: llmRes.data.model || 'qwen2.5:7b',
           api_url: llmRes.data.api_url || 'http://localhost:11434',
-          api_key: '', // 不返回实际key
+          api_key: '',
           max_tokens: llmRes.data.max_tokens || 2048,
           temperature: llmRes.data.temperature || 0.7
         });
-        setLlmPresets(llmRes.data.available_presets || []);
       } catch (e) {
         console.warn('加载LLM配置失败', e);
       }
@@ -77,6 +78,19 @@ const Settings: React.FC = () => {
     };
     fetchConfig();
   }, [form]);
+
+  // 保存嵌入模型配置
+  const handleSaveEmbedding = async (values: any) => {
+    setSaving(true);
+    try {
+      await axios.post(`${API_BASE}/config`, values);
+      message.success('嵌入模型配置已保存');
+    } catch (error) {
+      message.success('配置已保存到本地');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // 保存搜索精度预设
   const handlePresetChange = (value: string) => {
@@ -102,18 +116,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  // 应用LLM预设
-  const handleLlmPresetChange = async (presetKey: string) => {
-    try {
-      await axios.post(`http://localhost:8001/api/llm/config/preset/${presetKey}`);
-      const res = await axios.get('http://localhost:8001/api/llm/config');
-      setLlmConfig(res.data);
-      message.success('已切换大模型配置');
-    } catch (e) {
-      message.error('切换失败');
-    }
-  };
-
   // 测试LLM连接
   const testLlmConnection = async () => {
     setLlmLoading(true);
@@ -128,32 +130,21 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleSave = async (values: any) => {
-    setSaving(true);
-    try {
-      await axios.post(`${API_BASE}/config`, values);
-      message.success('设置保存成功');
-    } catch (error) {
-      message.success('设置已保存到本地');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   if (loading) {
     return (
-      <Card style={{ maxWidth: 600, textAlign: 'center' }}>
+      <Card style={{ textAlign: 'center' }}>
         <Spin tip="加载配置中..." />
       </Card>
     );
   }
 
-  return (
-    <Card title="系统设置" style={{ maxWidth: 600 }}>
+  // 嵌入模型配置页面
+  const EmbeddingSettings = () => (
+    <Card title="嵌入模型配置">
       <Form
         form={form}
         layout="vertical"
-        onFinish={handleSave}
+        onFinish={handleSaveEmbedding}
       >
         <Form.Item
           label="嵌入模型"
@@ -192,8 +183,19 @@ const Settings: React.FC = () => {
           <Switch />
         </Form.Item>
 
-        <Divider />
+        <Form.Item>
+          <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
+            保存配置
+          </Button>
+        </Form.Item>
+      </Form>
+    </Card>
+  );
 
+  // 搜索精度配置页面
+  const SearchSettings = () => (
+    <Card title="搜索精度配置">
+      <Form layout="vertical">
         <Form.Item label="搜索精度预设" extra="调整搜索速度与准确率的平衡">
           <Radio.Group value={searchPreset} onChange={(e) => handlePresetChange(e.target.value)}>
             <Radio.Button value="fast">低精度高速度</Radio.Button>
@@ -202,19 +204,53 @@ const Settings: React.FC = () => {
           </Radio.Group>
         </Form.Item>
         
-        <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 6, marginBottom: 16 }}>
-          <div style={{ fontWeight: 500, marginBottom: 8 }}>当前模式: {SEARCH_PRESETS[searchPreset as keyof typeof SEARCH_PRESETS].name}</div>
-          <div style={{ fontSize: 13, color: '#666' }}>
-            {searchPreset === 'fast' && '关闭重排序，召回10个候选。适合快速浏览，速度最快。'}
-            {searchPreset === 'normal' && '开启重排序，召回15个候选。速度与准确率平衡，推荐日常使用。'}
-            {searchPreset === 'precise' && '开启重排序和查询增强，召回30个候选。准确率最高，速度较慢。'}
+        <div style={{ padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>
+            当前模式: {SEARCH_PRESETS[searchPreset as keyof typeof SEARCH_PRESETS].name}
+          </div>
+          <div style={{ fontSize: 13, color: '#666', lineHeight: 1.8 }}>
+            {searchPreset === 'fast' && (
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                <li>关闭重排序</li>
+                <li>召回10个候选文档</li>
+                <li>适合快速浏览，速度最快</li>
+              </ul>
+            )}
+            {searchPreset === 'normal' && (
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                <li>开启重排序（Cross-Encoder）</li>
+                <li>召回15个候选文档</li>
+                <li>速度与准确率平衡，推荐日常使用</li>
+              </ul>
+            )}
+            {searchPreset === 'precise' && (
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                <li>开启重排序 + 查询增强</li>
+                <li>召回30个候选文档</li>
+                <li>准确率最高，响应较慢</li>
+              </ul>
+            )}
           </div>
         </div>
 
         <Divider />
 
-        <div style={{ fontWeight: 500, marginBottom: 12 }}>大模型配置</div>
-        
+        <div style={{ fontSize: 13, color: '#999' }}>
+          <strong>参数说明：</strong>
+          <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+            <li><strong>重排序</strong>：使用Cross-Encoder模型对召回结果进行精细排序，提高准确率</li>
+            <li><strong>查询增强</strong>：生成查询变体，扩大召回范围</li>
+            <li><strong>召回数量</strong>：初始召回的候选文档数，越大准确率越高但速度越慢</li>
+          </ul>
+        </div>
+      </Form>
+    </Card>
+  );
+
+  // 大模型配置页面
+  const LLMSettings = () => (
+    <Card title="大模型接入配置">
+      <Form layout="vertical">
         <Form.Item label="模型提供商" extra="选择大模型服务提供商">
           <Select 
             value={llmConfig.provider} 
@@ -247,7 +283,7 @@ const Settings: React.FC = () => {
           />
         </Form.Item>
 
-        <Form.Item label="API地址" extra={llmConfig.provider === 'ollama' ? 'Ollama服务地址，默认 http://localhost:11434' : '云端API基础地址'}>
+        <Form.Item label="API地址" extra={llmConfig.provider === 'ollama' ? 'Ollama服务地址' : '云端API基础地址'}>
           <Input 
             value={llmConfig.api_url}
             onChange={(e) => setLlmConfig({ ...llmConfig, api_url: e.target.value })}
@@ -266,29 +302,34 @@ const Settings: React.FC = () => {
           </Form.Item>
         )}
 
-        <Form.Item label="最大输出Token" extra="限制生成内容的最大长度">
-          <InputNumber 
-            value={llmConfig.max_tokens}
-            onChange={(v) => setLlmConfig({ ...llmConfig, max_tokens: v || 2048 })}
-            min={100}
-            max={8192}
-            style={{ width: '100%' }}
-          />
-        </Form.Item>
-
-        <Form.Item label="温度参数" extra="控制回答的随机性，0-1之间，越高越随机">
-          <InputNumber 
-            value={llmConfig.temperature}
-            onChange={(v) => setLlmConfig({ ...llmConfig, temperature: v || 0.7 })}
-            min={0}
-            max={1}
-            step={0.1}
-            style={{ width: '100%' }}
-          />
-        </Form.Item>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item label="最大输出Token" extra="生成内容最大长度">
+              <InputNumber 
+                value={llmConfig.max_tokens}
+                onChange={(v) => setLlmConfig({ ...llmConfig, max_tokens: v || 2048 })}
+                min={100}
+                max={8192}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="温度参数" extra="随机性控制，越高越随机">
+              <InputNumber 
+                value={llmConfig.temperature}
+                onChange={(v) => setLlmConfig({ ...llmConfig, temperature: v || 0.7 })}
+                min={0}
+                max={1}
+                step={0.1}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
 
         <Form.Item>
-          <Button type="primary" onClick={saveLlmConfig} style={{ marginRight: 8 }}>
+          <Button type="primary" onClick={saveLlmConfig} style={{ marginRight: 8 }} icon={<SaveOutlined />}>
             保存配置
           </Button>
           <Button onClick={testLlmConnection} loading={llmLoading}>
@@ -301,13 +342,68 @@ const Settings: React.FC = () => {
           )}
         </Form.Item>
 
-        <Form.Item>
-          <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
-            保存设置
-          </Button>
-        </Form.Item>
+        <Divider />
+
+        <div style={{ fontSize: 13, color: '#999' }}>
+          <strong>使用说明：</strong>
+          <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+            <li><strong>Ollama本地</strong>：需先安装Ollama并下载模型，运行 <code>ollama pull qwen2.5:7b</code></li>
+            <li><strong>云端API</strong>：需填写对应平台的API Key，可在各平台官网申请</li>
+            <li><strong>模型用途</strong>：用于搜索结果的AI问答生成，在搜索界面勾选"生成AI回答"启用</li>
+          </ul>
+        </div>
       </Form>
     </Card>
+  );
+
+  // 渲染当前页面
+  const renderContent = () => {
+    switch (activeMenu) {
+      case 'embedding':
+        return <EmbeddingSettings />;
+      case 'search':
+        return <SearchSettings />;
+      case 'llm':
+        return <LLMSettings />;
+      default:
+        return <EmbeddingSettings />;
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 24 }}>
+      {/* 左侧菜单 */}
+      <Card style={{ width: 200, height: 'fit-content' }}>
+        <Menu
+          mode="vertical"
+          selectedKeys={[activeMenu]}
+          onClick={({ key }) => setActiveMenu(key)}
+          style={{ border: 'none' }}
+          items={[
+            {
+              key: 'embedding',
+              icon: <ApiOutlined />,
+              label: '嵌入模型配置',
+            },
+            {
+              key: 'search',
+              icon: <SearchOutlined />,
+              label: '搜索精度配置',
+            },
+            {
+              key: 'llm',
+              icon: <RobotOutlined />,
+              label: '大模型接入配置',
+            },
+          ]}
+        />
+      </Card>
+
+      {/* 右侧内容 */}
+      <div style={{ flex: 1, maxWidth: 600 }}>
+        {renderContent()}
+      </div>
+    </div>
   );
 };
 
