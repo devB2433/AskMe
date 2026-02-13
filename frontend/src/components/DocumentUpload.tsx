@@ -272,10 +272,10 @@ const DocumentUpload: React.FC = () => {
     }
     
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-        <div style={{ width: 120 }}>
-          <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11, color: '#666' }}>{t('upload.fileUpload')}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 48 }}>
+        <div style={{ width: 140 }}>
+          <div style={{ marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, color: '#666' }}>{t('upload.fileUpload')}</span>
             {task.status === 'processing' && phaseInfo.phase === 'upload' && (
               <SyncOutlined spin style={{ fontSize: 10, color: '#1890ff', marginLeft: 8 }} />
             )}
@@ -288,9 +288,9 @@ const DocumentUpload: React.FC = () => {
             style={{ margin: 0 }}
           />
         </div>
-        <div style={{ width: 120 }}>
-          <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11, color: '#666' }}>{t('upload.vectorization')}</span>
+        <div style={{ width: 140 }}>
+          <div style={{ marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, color: '#666' }}>{t('upload.vectorization')}</span>
             {task.status === 'processing' && phaseInfo.phase === 'vector' && (
               <SyncOutlined spin style={{ fontSize: 10, color: '#fa8c16', marginLeft: 8 }} />
             )}
@@ -396,12 +396,12 @@ const DocumentUpload: React.FC = () => {
                   key={task.task_id}
                   style={{ padding: '12px 0' }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 16 }}>
-                    <div style={{ width: 300, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 24 }}>
+                    <div style={{ width: 280, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       <span style={{ fontWeight: 500 }}>{task.filename}</span>
                     </div>
                     
-                    <div style={{ width: 70, flexShrink: 0 }}>
+                    <div style={{ width: 90, flexShrink: 0 }}>
                       {getStatusTag(task.status)}
                     </div>
                     

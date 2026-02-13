@@ -151,7 +151,7 @@ const AppContent: React.FC = () => {
         </div>
       </Header>
       <Layout>
-        <Sider width={200} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
+        <Sider width={240} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
           <Menu
             mode="inline"
             selectedKeys={getSelectedKeys()}

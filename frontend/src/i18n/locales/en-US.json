@@ -60,7 +60,14 @@
     "searchResults": "Search Results",
     "relatedDocuments": "Related Documents",
     "noResults": "No results found",
-    "score": "Relevance"
+    "score": "Relevance",
+    "searching": "Searching...",
+    "pleaseWait": "Please wait patiently",
+    "stageVectorizing": "Vector Matching",
+    "stageRecalling": "Result Recall",
+    "stageReranking": "Smart Reranking",
+    "stageGenerating": "AI Generating",
+    "searchFailed": "Search Failed"
   },
   "upload": {
     "title": "Document Upload",

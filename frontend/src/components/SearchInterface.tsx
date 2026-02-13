@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress, Checkbox, Alert, Divider } from 'antd';
-import { SearchOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Input, Button, List, Card, Tag, AutoComplete, Spin, Progress, Checkbox, Alert, Divider, Steps } from 'antd';
+import { SearchOutlined, LoadingOutlined, CheckCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,6 +11,9 @@ interface Department {
   id: string;
   name: string;
 }
+
+// 搜索阶段定义
+type SearchStage = 'idle' | 'vectorizing' | 'recalling' | 'reranking' | 'generating' | 'completed' | 'error';
 
 const SearchInterface: React.FC = () => {
   const { t } = useTranslation();
@@ -29,7 +32,10 @@ const SearchInterface: React.FC = () => {
   });
   const [generateAnswer, setGenerateAnswer] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  
+  // 搜索阶段状态
+  const [searchStage, setSearchStage] = useState<SearchStage>('idle');
+  const [stageMessage, setStageMessage] = useState('');
   
   // 加载搜索配置
   useEffect(() => {
@@ -56,25 +62,79 @@ const SearchInterface: React.FC = () => {
     setLoading(true);
     setSearched(false);
     setAiAnswer(null);
+    setSearchResults([]);
+    setSearchStage('vectorizing');
+    setStageMessage(t('search.stageVectorizing'));
     
+    // 构建SSE URL
+    const params = new URLSearchParams({
+      q: value,
+      limit: '10',
+      use_rerank: String(searchConfig.useRerank),
+      use_query_enhance: String(searchConfig.useQueryEnhance),
+      recall_size: String(searchConfig.recallSize),
+      generate_answer: String(generateAnswer)
+    });
+    
+    const sseUrl = `${API_BASE}/stream?${params}`;
+    
+    // 使用 fetch + ReadableStream 处理 SSE
     try {
-      const response = await axios.get(API_BASE, {
-        params: { 
-          q: value, 
-          limit: 10,
-          use_rerank: searchConfig.useRerank,
-          use_query_enhance: searchConfig.useQueryEnhance,
-          recall_size: searchConfig.recallSize,
-          generate_answer: generateAnswer
-        },
+      const response = await fetch(sseUrl, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       
-      setSearchResults(response.data.results || []);
-      setAiAnswer(response.data.ai_answer || null);
-      setSearched(true);
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        throw new Error('无法读取响应流');
+      }
+      
+      let buffer = '';
+      
+      while (true) {
+        const { done, value: chunk } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(chunk, { stream: true });
+        
+        // 解析 SSE 数据
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              // 更新阶段状态
+              if (data.stage) {
+                setSearchStage(data.stage as SearchStage);
+                setStageMessage(data.message || '');
+              }
+              
+              // 完成时设置结果
+              if (data.stage === 'completed' && data.data) {
+                setSearchResults(data.data.results || []);
+                setAiAnswer(data.data.ai_answer || null);
+                setSearched(true);
+              }
+              
+              // 错误处理
+              if (data.stage === 'error') {
+                console.error('搜索错误:', data.message);
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Search failed:', error);
+      setSearchStage('error');
+      setStageMessage(t('search.searchFailed'));
     } finally {
       setLoading(false);
     }
@@ -121,6 +181,27 @@ const SearchInterface: React.FC = () => {
     handleDepartmentSearch(value);
   };
 
+  // 获取阶段图标
+  const getStageIcon = (stage: SearchStage) => {
+    if (stage === 'idle' || stage === 'completed') return null;
+    return <SyncOutlined spin style={{ fontSize: 16, marginRight: 8, color: '#1890ff' }} />;
+  };
+
+  // 获取阶段进度百分比
+  const getStageProgress = () => {
+    const stages: SearchStage[] = ['vectorizing', 'recalling', 'reranking', 'generating', 'completed'];
+    const currentIndex = stages.indexOf(searchStage);
+    if (currentIndex < 0) return 0;
+    // 如果不需要重排序或生成，跳过对应阶段
+    let progress = 0;
+    if (searchStage === 'vectorizing') progress = 20;
+    else if (searchStage === 'recalling') progress = 40;
+    else if (searchStage === 'reranking') progress = 60;
+    else if (searchStage === 'generating') progress = 80;
+    else if (searchStage === 'completed') progress = 100;
+    return progress;
+  };
+
   return (
     <Card title={t('search.title')}>
       <AutoComplete
@@ -157,7 +238,100 @@ const SearchInterface: React.FC = () => {
 
       {loading && (
         <div style={{ textAlign: 'center', padding: '40px 0' }}>
-          <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
+          {/* 进度条 */}
+          <div style={{ marginBottom: 24 }}>
+            <Progress 
+              percent={getStageProgress()} 
+              status="active"
+              strokeColor="#1890ff"
+              trailColor="#f0f0f0"
+            />
+          </div>
+          
+          {/* 阶段指示器 */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            gap: 32, 
+            marginBottom: 24,
+            flexWrap: 'wrap'
+          }}>
+            {/* 向量匹配 */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              opacity: ['vectorizing', 'recalling', 'reranking', 'generating', 'completed'].includes(searchStage) ? 1 : 0.4 
+            }}>
+              {searchStage === 'vectorizing' ? (
+                <SyncOutlined spin style={{ fontSize: 16, marginRight: 8, color: '#1890ff' }} />
+              ) : ['recalling', 'reranking', 'generating', 'completed'].includes(searchStage) ? (
+                <CheckCircleOutlined style={{ fontSize: 16, marginRight: 8, color: '#52c41a' }} />
+              ) : (
+                <div style={{ width: 16, height: 16, marginRight: 8, borderRadius: '50%', border: '2px solid #d9d9d9' }} />
+              )}
+              <span style={{ fontSize: 13 }}>{t('search.stageVectorizing')}</span>
+            </div>
+            
+            {/* 结果召回 */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              opacity: ['recalling', 'reranking', 'generating', 'completed'].includes(searchStage) ? 1 : 0.4 
+            }}>
+              {searchStage === 'recalling' ? (
+                <SyncOutlined spin style={{ fontSize: 16, marginRight: 8, color: '#1890ff' }} />
+              ) : ['reranking', 'generating', 'completed'].includes(searchStage) ? (
+                <CheckCircleOutlined style={{ fontSize: 16, marginRight: 8, color: '#52c41a' }} />
+              ) : (
+                <div style={{ width: 16, height: 16, marginRight: 8, borderRadius: '50%', border: '2px solid #d9d9d9' }} />
+              )}
+              <span style={{ fontSize: 13 }}>{t('search.stageRecalling')}</span>
+            </div>
+            
+            {/* 重排序（仅当启用时显示） */}
+            {searchConfig.useRerank && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                opacity: ['reranking', 'generating', 'completed'].includes(searchStage) ? 1 : 0.4 
+              }}>
+                {searchStage === 'reranking' ? (
+                  <SyncOutlined spin style={{ fontSize: 16, marginRight: 8, color: '#1890ff' }} />
+                ) : ['generating', 'completed'].includes(searchStage) ? (
+                  <CheckCircleOutlined style={{ fontSize: 16, marginRight: 8, color: '#52c41a' }} />
+                ) : (
+                  <div style={{ width: 16, height: 16, marginRight: 8, borderRadius: '50%', border: '2px solid #d9d9d9' }} />
+                )}
+                <span style={{ fontSize: 13 }}>{t('search.stageReranking')}</span>
+              </div>
+            )}
+            
+            {/* 推理生成（仅当启用时显示） */}
+            {generateAnswer && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                opacity: ['generating', 'completed'].includes(searchStage) ? 1 : 0.4 
+              }}>
+                {searchStage === 'generating' ? (
+                  <SyncOutlined spin style={{ fontSize: 16, marginRight: 8, color: '#1890ff' }} />
+                ) : searchStage === 'completed' ? (
+                  <CheckCircleOutlined style={{ fontSize: 16, marginRight: 8, color: '#52c41a' }} />
+                ) : (
+                  <div style={{ width: 16, height: 16, marginRight: 8, borderRadius: '50%', border: '2px solid #d9d9d9' }} />
+                )}
+                <span style={{ fontSize: 13 }}>{t('search.stageGenerating')}</span>
+              </div>
+            )}
+          </div>
+          
+          {/* 当前阶段提示 */}
+          <div style={{ color: '#666', fontSize: 14, marginBottom: 8 }}>
+            {stageMessage}
+          </div>
+          <div style={{ color: '#999', fontSize: 12 }}>
+            {t('search.pleaseWait')}
+          </div>
         </div>
       )}
 

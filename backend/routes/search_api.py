@@ -1,5 +1,6 @@
 """搜索API路由 - 增强版（多路召回+重排序+查询增强）"""
 from fastapi import APIRouter, Query, HTTPException, Header
+from fastapi.responses import StreamingResponse
 from typing import List, Optional, Dict, Any
 import logging
 import os
@@ -363,3 +364,203 @@ async def get_search_config():
         "rerank_model": "BAAI/bge-reranker-large",
         "embedding_model": "BAAI/bge-large-zh-v1.5"
     }
+
+
+@router.get("/stream", summary="流式搜索（SSE）")
+async def search_documents_stream(
+    q: str = Query(..., description="搜索关键词"),
+    limit: int = Query(10, description="返回结果数量"),
+    team: str = Query(None, description="团队/部门过滤"),
+    use_rerank: bool = Query(True, description="是否使用重排序"),
+    use_query_enhance: bool = Query(False, description="是否使用查询增强"),
+    recall_size: int = Query(15, description="召回数量"),
+    generate_answer: bool = Query(False, description="是否生成AI回答"),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    流式搜索 - 通过SSE推送搜索阶段状态
+    
+    阶段：
+    1. vectorizing - 向量匹配
+    2. recalling - 结果召回  
+    3. reranking - 重排序
+    4. generating - 推理生成
+    5. completed - 完成
+    """
+    
+    async def event_generator():
+        try:
+            # 发送状态辅助函数
+            async def send_stage(stage: str, message: str, data: dict = None):
+                event_data = json.dumps({
+                    "stage": stage,
+                    "message": message,
+                    "data": data or {}
+                }, ensure_ascii=False)
+                yield f"data: {event_data}\n\n"
+            
+            # 解析搜索语法
+            actual_team = team
+            actual_query = q
+            
+            if not actual_team and q.startswith("/"):
+                parts = q.split(None, 1)
+                if len(parts) >= 1:
+                    parsed_team = parts[0][1:]
+                    actual_query = parts[1] if len(parts) > 1 else ""
+                    
+                    from services.user_service import user_service
+                    departments = user_service.get_departments()
+                    matched_dept = None
+                    for dept in departments:
+                        if dept == parsed_team or parsed_team in dept:
+                            matched_dept = dept
+                            break
+                    actual_team = matched_dept or parsed_team
+            
+            # 获取用户信息
+            user_department = None
+            if authorization:
+                from services.user_service import user_service
+                token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+                user = user_service.get_user_by_token(token)
+                if user:
+                    user_department = user.get("department") if isinstance(user, dict) else user.department
+            
+            # 构建过滤条件
+            filter_expr = None
+            search_team = actual_team or user_department
+            if search_team:
+                filter_expr = f'team_id == "{search_team}"'
+            
+            # 阶段1: 向量匹配
+            async for chunk in send_stage("vectorizing", "正在匹配向量..."):
+                yield chunk
+            
+            encoder = get_embedding_encoder()
+            milvus = get_milvus_client()
+            
+            # 查询增强
+            queries = [actual_query]
+            if use_query_enhance and actual_query.strip():
+                enhancer = get_query_enhancer_instance()
+                enhanced_queries = enhancer.enhance_query(actual_query, num_variations=2)
+                queries = enhanced_queries
+            
+            # 向量化查询
+            all_candidates = []
+            seen_chunk_ids = set()
+            
+            for query_text in queries:
+                if not query_text.strip():
+                    continue
+                query_vector = encoder.encode_single(query_text).tolist()
+                search_results = milvus.search_vectors(
+                    collection_name="askme_documents",
+                    query_vector=query_vector,
+                    top_k=recall_size,
+                    filter_expr=filter_expr,
+                    output_fields=["document_id", "team_id", "chunk_id", "content", "metadata"]
+                )
+                for result in search_results:
+                    chunk_id = result.get("chunk_id")
+                    if chunk_id and chunk_id not in seen_chunk_ids:
+                        seen_chunk_ids.add(chunk_id)
+                        all_candidates.append(result)
+            
+            # 阶段2: 结果召回
+            async for chunk in send_stage("recalling", f"已召回 {len(all_candidates)} 个候选结果"):
+                yield chunk
+            
+            if not all_candidates:
+                async for chunk in send_stage("completed", "搜索完成", {"results": [], "total": 0}):
+                    yield chunk
+                return
+            
+            # 阶段3: 重排序
+            reranker_instance = get_reranker_instance()
+            
+            if use_rerank and reranker_instance and len(all_candidates) > 0:
+                async for chunk in send_stage("reranking", "正在重排序结果..."):
+                    yield chunk
+                
+                final_candidates = reranker_instance.rerank(
+                    query=actual_query,
+                    documents=all_candidates,
+                    content_key="content",
+                    top_k=limit
+                )
+                search_type = "vector_reranked"
+            else:
+                all_candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
+                final_candidates = all_candidates[:limit]
+                search_type = "vector"
+            
+            # 构建返回结果
+            results = []
+            seen_docs = set()
+            
+            for candidate in final_candidates:
+                doc_id = candidate.get("document_id")
+                if doc_id and doc_id not in seen_docs:
+                    seen_docs.add(doc_id)
+                    doc_record = db.fetchone(
+                        "SELECT filename, created_at FROM documents WHERE id = ?",
+                        (doc_id,)
+                    )
+                    final_score = candidate.get("rerank_score") or candidate.get("score", 0.9)
+                    
+                    if doc_record:
+                        results.append({
+                            "document_id": doc_id,
+                            "filename": doc_record["filename"],
+                            "score": round(final_score, 4),
+                            "matches": [candidate.get("content", "")[:500]],
+                            "created_at": doc_record["created_at"],
+                            "search_type": search_type
+                        })
+            
+            results.sort(key=lambda x: x["score"], reverse=True)
+            
+            # 阶段4: 推理生成
+            ai_answer = None
+            if generate_answer and results:
+                async for chunk in send_stage("generating", "正在生成AI回答..."):
+                    yield chunk
+                
+                try:
+                    rag = get_rag_generator()
+                    contexts = []
+                    for r in results[:5]:
+                        contexts.append({
+                            "filename": r.get("filename", ""),
+                            "content": r.get("matches", [""])[0] if r.get("matches") else "",
+                            "score": r.get("score", 0)
+                        })
+                    ai_answer = await rag.generate_answer(actual_query, contexts, max_contexts=5)
+                except Exception as e:
+                    logger.warning(f"AI回答生成失败: {e}")
+            
+            # 阶段5: 完成
+            async for chunk in send_stage("completed", "搜索完成", {
+                "results": results[:limit],
+                "total": len(results),
+                "ai_answer": ai_answer,
+                "query": q
+            }):
+                yield chunk
+                
+        except Exception as e:
+            logger.error(f"流式搜索失败: {e}")
+            error_data = json.dumps({"stage": "error", "message": str(e)}, ensure_ascii=False)
+            yield f"data: {error_data}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )

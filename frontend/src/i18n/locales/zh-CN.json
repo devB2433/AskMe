@@ -60,7 +60,14 @@
     "searchResults": "搜索结果",
     "relatedDocuments": "相关文档",
     "noResults": "未找到相关结果",
-    "score": "相关度"
+    "score": "相关度",
+    "searching": "正在搜索...",
+    "pleaseWait": "请耐心等待",
+    "stageVectorizing": "向量匹配",
+    "stageRecalling": "结果召回",
+    "stageReranking": "智能重排",
+    "stageGenerating": "推理生成",
+    "searchFailed": "搜索失败"
   },
   "upload": {
     "title": "文档上传",
